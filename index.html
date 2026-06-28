@@ -1,32 +1,4 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<title>The Pew Challenge — Lance the Realtor</title>
-<style>
-  html, body { margin: 0; padding: 0; background: #F4EDE4; }
-  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  #root { min-height: 100vh; }
-</style>
-</head>
-<body>
-<div id="root"></div>
-<div id="error-display" style="display:none; position:fixed; inset:0; background:#2F3E46; color:#F4EDE4; padding:20px; font-family:monospace; font-size:13px; z-index:9999; overflow:auto; white-space:pre-wrap;"></div>
-<script>
-  window.addEventListener('error', function(e) {
-    var box = document.getElementById('error-display');
-    box.style.display = 'block';
-    box.textContent = 'ERROR:\n' + e.message + '\n\nFile: ' + e.filename + '\nLine: ' + e.lineno + ', Col: ' + e.colno;
-  });
-</script>
-
-<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<script type="text/babel" data-presets="react">
-const { useState, useRef, useCallback, useEffect } = React;
-
+import React, { useState, useRef, useCallback } from 'react';
 
 // ---- Brand tokens ----
 const COLORS = {
@@ -58,7 +30,6 @@ const SEED_LOG = [
   { id: 's4', section: 'center', row: 5, date: '2026-06-07', photo: null },
   { id: 's5', section: 'right', row: 3, date: '2026-06-14', photo: null },
   { id: 's6', section: 'center', row: 2, date: '2026-06-21', photo: null },
-  { id: 's7', section: 'left', row: 5, date: '2026-06-28', photo: null },
 ];
 
 const pewKey = (section, row) => `${section}-${row}`;
@@ -135,7 +106,7 @@ function CameraCapture({ onCapture, onCancel }) {
     }
   }, []);
 
-  useEffect(() => {
+  React.useEffect(() => {
     start(facingMode);
     return () => stopStream();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -347,7 +318,7 @@ function BragCard({ log, totalPews, onClose }) {
   const pct = Math.round((uniquePews / totalPews) * 100);
   const latestPhoto = [...log].reverse().find((l) => l.photo)?.photo;
 
-  useEffect(() => {
+  React.useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -612,7 +583,7 @@ function ChapelMap({ log, selected, onSelectPew }) {
   );
 }
 
-function PewChallengeApp() {
+export default function PewChallengeApp() {
   const [log, setLog] = useState(SEED_LOG);
   const [pendingPew, setPendingPew] = useState(null); // { key, section, row }
   const [showCamera, setShowCamera] = useState(false);
@@ -858,9 +829,3 @@ function LegendDot({ color, label }) {
     </div>
   );
 }
-
-const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(<PewChallengeApp />);
-</script>
-</body>
-</html>
