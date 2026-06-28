@@ -23,7 +23,7 @@
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<script type="text/babel" data-presets="react">
+<script id="app-source" type="text/plain">
 const { useState, useRef, useCallback, useEffect } = React;
 
 
@@ -860,6 +860,19 @@ function LegendDot({ color, label }) {
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(<PewChallengeApp />);
+</script>
+<script>
+  (function() {
+    var src = document.getElementById('app-source').textContent;
+    var transformed = Babel.transform(src, {
+      presets: [['react', { runtime: 'classic' }]],
+      sourceType: 'script',
+      filename: 'app.jsx'
+    }).code;
+    var script = document.createElement('script');
+    script.text = transformed;
+    document.body.appendChild(script);
+  })();
 </script>
 </body>
 </html>
