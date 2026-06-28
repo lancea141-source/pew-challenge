@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>The Pew Challenge — Lance the Realtor</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #F4EDE4; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  #root { min-height: 100vh; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script type="text/babel" data-presets="react">
+const { useState, useRef, useCallback, useEffect } = React;
+
+
+// ---- Brand tokens ----
+const COLORS = {
+  cream: '#F4EDE4',
+  navy: '#2F3E46',
+  terracotta: '#C0652A',
+  camel: '#C2A178',
+  olive: '#6B7A3A',
+};
+
+const LOGO_URL = 'https://drive.google.com/uc?id=1NosHz-mLGpPckIeBhrQpgtwH5YU_Lu6s';
+
+// ---- Chapel layout (seeded from real sheet data) ----
+// rows 1 (front) -> max (back), columns left/center/right
+// left: 1-10 only (rows 11-13 are pulpit access, no pews)
+// center: 1-13, full depth
+// right: 1-12, with 11-12 blocked (sacrament table)
+const SECTION_ROWS = { left: 10, center: 13, right: 12 };
+const MAX_ROWS = 13;
+const SECTIONS = ['left', 'center', 'right'];
+const BLOCKED = new Set(['right-11', 'right-12']); // sacrament table
+
+const pewExists = (section, row) => row <= SECTION_ROWS[section];
+
+const SEED_LOG = [
+  { id: 's1', section: 'center', row: 3, date: '2026-05-03', photo: null },
+  { id: 's2', section: 'center', row: 4, date: '2026-05-10', photo: null },
+  { id: 's3', section: 'left', row: 3, date: '2026-05-31', photo: null },
+  { id: 's4', section: 'center', row: 5, date: '2026-06-07', photo: null },
+  { id: 's5', section: 'right', row: 3, date: '2026-06-14', photo: null },
+  { id: 's6', section: 'center', row: 2, date: '2026-06-21', photo: null },
+  { id: 's7', section: 'left', row: 5, date: '2026-06-28', photo: null },
+];
+
+const pewKey = (section, row) => `${section}-${row}`;
+
+const fmtDate = (iso) => {
+  const d = new Date(iso + 'T12:00:00');
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+const todayISO = () => new Date().toISOString().slice(0, 10);
+
+// ---- Camera capture: BeReal-style dual shot ----
+function CameraCapture({ onCapture, onCancel }) {
+  const [mode, setMode] = useState('dual'); // 'dual' | 'selfie'
+  const [stage, setStage] = useState('back'); // 'back' -> 'front' (dual mode only)
+  const [backShot, setBackShot] = useState(null);
+  const [frontShot, setFrontShot] = useState(null);
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const [ready, setReady] = useState(false);
+  const [error, setError] = useState(null);
+  const [autoSwitchNote, setAutoSwitchNote] = useState(false);
+
+  const facingMode = mode === 'selfie' ? 'user' : (stage === 'back' ? 'environment' : 'user');
+
+  const stopStream = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+  };
+
+  const start = useCallback(async (fm) => {
+    setReady(false);
+    setError(null);
+    stopStream();
+
+    // Try a chain of constraints, loosest fallback last.
+    // iOS Safari sometimes rejects an exact facingMode it actually supports.
+    const attempts = fm === 'environment'
+      ? [
+          { video: { facingMode: { exact: 'environment' } }, audio: false },
+          { video: { facingMode: 'environment' }, audio: false },
+          { video: true, audio: false }, // last resort: whatever camera is default
+        ]
+      : [
+          { video: { facingMode: 'user' }, audio: false },
+          { video: true, audio: false },
+        ];
+
+    for (let i = 0; i < attempts.length; i++) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(attempts[i]);
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+          setReady(true);
+        }
+        return;
+      } catch (e) {
+        if (i === attempts.length - 1) {
+          if (fm === 'environment') {
+            // graceful fallback: drop to selfie-only mode automatically
+            setMode('selfie');
+            setStage('back');
+            setAutoSwitchNote(true);
+            setTimeout(() => setAutoSwitchNote(false), 3500);
+          } else {
+            setError('Camera unavailable. Check Safari camera permissions in Settings.');
+          }
+        }
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    start(facingMode);
+    return () => stopStream();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [facingMode]);
+
+  const captureFrame = (mirror) => {
+    const video = videoRef.current;
+    if (!video) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (mirror) {
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+    }
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.85);
+  };
+
+  const composite = (back, front) => {
+    return new Promise((resolve) => {
+      const W = 900, H = 1200;
+      const canvas = document.createElement('canvas');
+      canvas.width = W;
+      canvas.height = H;
+      const ctx = canvas.getContext('2d');
+      const bigImg = new Image();
+      bigImg.onload = () => {
+        // cover-fit big image
+        const scale = Math.max(W / bigImg.width, H / bigImg.height);
+        const w = bigImg.width * scale, h = bigImg.height * scale;
+        ctx.drawImage(bigImg, (W - w) / 2, (H - h) / 2, w, h);
+
+        const smallImg = new Image();
+        smallImg.onload = () => {
+          const bw = 280, bh = 370, pad = 28, radius = 28;
+          const bx = pad, by = pad;
+          ctx.save();
+          ctx.beginPath();
+          ctx.roundRect(bx, by, bw, bh, radius);
+          ctx.lineWidth = 6;
+          ctx.strokeStyle = '#fff';
+          ctx.fillStyle = '#000';
+          ctx.fill();
+          ctx.clip();
+          const sScale = Math.max(bw / smallImg.width, bh / smallImg.height);
+          const sw = smallImg.width * sScale, sh = smallImg.height * sScale;
+          ctx.drawImage(smallImg, bx + (bw - sw) / 2, by + (bh - sh) / 2, sw, sh);
+          ctx.restore();
+          ctx.beginPath();
+          ctx.roundRect(bx, by, bw, bh, radius);
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 6;
+          ctx.stroke();
+          resolve(canvas.toDataURL('image/jpeg', 0.88));
+        };
+        smallImg.src = front;
+      };
+      bigImg.src = back;
+    });
+  };
+
+  const handleShutter = async () => {
+    if (mode === 'selfie') {
+      const shot = captureFrame(true);
+      onCapture(shot);
+      return;
+    }
+    // dual mode
+    if (stage === 'back') {
+      const shot = captureFrame(false);
+      setBackShot(shot);
+      setStage('front');
+    } else {
+      const shot = captureFrame(true);
+      setFrontShot(shot);
+      const final = await composite(backShot, shot);
+      onCapture(final);
+    }
+  };
+
+  const switchMode = (m) => {
+    setMode(m);
+    setStage('back');
+    setBackShot(null);
+    setFrontShot(null);
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(20,24,22,0.95)',
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      justifyContent: 'center', zIndex: 50, padding: 16,
+    }}>
+      {/* mode toggle */}
+      {autoSwitchNote && (
+        <div style={{
+          background: COLORS.camel, color: COLORS.navy, fontSize: 12.5, fontWeight: 600,
+          padding: '8px 16px', borderRadius: 999, marginBottom: 10, fontFamily: 'system-ui',
+        }}>
+          Back camera isn't available here — switched to selfie mode
+        </div>
+      )}
+      <div style={{
+        display: 'flex', background: 'rgba(244,237,228,0.1)', borderRadius: 999,
+        padding: 4, marginBottom: 16, gap: 4,
+      }}>
+        {[{ k: 'dual', label: 'BeReal-style' }, { k: 'selfie', label: 'Selfie only' }].map((opt) => (
+          <button
+            key={opt.k}
+            onClick={() => switchMode(opt.k)}
+            style={{
+              padding: '8px 16px', borderRadius: 999, border: 'none',
+              background: mode === opt.k ? COLORS.terracotta : 'transparent',
+              color: COLORS.cream, fontSize: 12.5, fontWeight: 600, fontFamily: 'system-ui',
+            }}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{
+        width: '100%', maxWidth: 340, borderRadius: 20, overflow: 'hidden',
+        border: `3px solid ${COLORS.terracotta}`, background: '#000',
+        aspectRatio: '3/4', position: 'relative',
+      }}>
+        {error ? (
+          <div style={{ color: COLORS.cream, padding: 24, textAlign: 'center', fontFamily: 'system-ui' }}>
+            {error}
+          </div>
+        ) : (
+          <video
+            ref={videoRef}
+            playsInline
+            muted
+            style={{
+              width: '100%', height: '100%', objectFit: 'cover',
+              transform: facingMode === 'user' ? 'scaleX(-1)' : 'none',
+            }}
+          />
+        )}
+
+        {/* dual-mode progress badge */}
+        {mode === 'dual' && !error && (
+          <div style={{
+            position: 'absolute', top: 12, left: 12, background: 'rgba(0,0,0,0.55)',
+            color: COLORS.cream, fontSize: 11, fontWeight: 700, padding: '5px 10px',
+            borderRadius: 999, fontFamily: 'system-ui', letterSpacing: 0.3,
+          }}>
+            {stage === 'back' ? '1/2 · Back camera' : '2/2 · Now your face'}
+          </div>
+        )}
+
+        {/* small preview thumbnail of back shot during front stage */}
+        {mode === 'dual' && stage === 'front' && backShot && (
+          <img
+            src={backShot}
+            alt=""
+            style={{
+              position: 'absolute', bottom: 12, right: 12, width: 64, height: 84,
+              objectFit: 'cover', borderRadius: 10, border: '2px solid white',
+            }}
+          />
+        )}
+      </div>
+
+      <p style={{ color: COLORS.camel, fontSize: 12, marginTop: 12, fontFamily: 'system-ui', textAlign: 'center' }}>
+        {mode === 'dual'
+          ? (stage === 'back' ? 'Frame the chapel, then tap to capture' : 'Now flip for your selfie')
+          : 'Selfie, BeReal style — no filters, just real'}
+      </p>
+
+      <div style={{ display: 'flex', gap: 14, marginTop: 16 }}>
+        <button
+          onClick={onCancel}
+          style={{
+            padding: '12px 22px', borderRadius: 999, border: `1px solid ${COLORS.cream}`,
+            background: 'transparent', color: COLORS.cream, fontFamily: 'system-ui',
+            fontSize: 15, fontWeight: 500,
+          }}
+        >
+          Cancel
+        </button>
+        {ready && !error && (
+          <button
+            onClick={handleShutter}
+            style={{
+              padding: '12px 28px', borderRadius: 999, border: 'none',
+              background: COLORS.terracotta, color: COLORS.cream, fontFamily: 'system-ui',
+              fontSize: 15, fontWeight: 700, letterSpacing: 0.3,
+            }}
+          >
+            {mode === 'dual'
+              ? (stage === 'back' ? '📷 Capture' : '🤳 Capture')
+              : '📸 Church Check'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---- Brag card ----
+function BragCard({ log, totalPews, onClose }) {
+  const canvasRef = useRef(null);
+  const uniquePews = new Set(log.map((l) => pewKey(l.section, l.row))).size;
+  const pct = Math.round((uniquePews / totalPews) * 100);
+  const latestPhoto = [...log].reverse().find((l) => l.photo)?.photo;
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const W = 800, H = 1000;
+    canvas.width = W;
+    canvas.height = H;
+
+    const draw = () => {
+      // background
+      ctx.fillStyle = COLORS.cream;
+      ctx.fillRect(0, 0, W, H);
+
+      // top band
+      ctx.fillStyle = COLORS.navy;
+      ctx.fillRect(0, 0, W, 140);
+
+      ctx.fillStyle = COLORS.cream;
+      ctx.font = '700 40px Georgia';
+      ctx.textAlign = 'center';
+      ctx.fillText('THE PEW CHALLENGE', W / 2, 65);
+      ctx.font = '500 20px system-ui';
+      ctx.fillStyle = COLORS.camel;
+      ctx.fillText('#PewChallenge', W / 2, 100);
+
+      const renderRest = () => {
+        // photo or placeholder block
+        const photoY = 180, photoSize = 420;
+        const photoX = (W - photoSize) / 2;
+        if (latestPhoto) {
+          const img = new Image();
+          img.onload = () => {
+            ctx.save();
+            ctx.beginPath();
+            ctx.roundRect(photoX, photoY, photoSize, photoSize, 24);
+            ctx.clip();
+            ctx.drawImage(img, photoX, photoY, photoSize, photoSize);
+            ctx.restore();
+            ctx.strokeStyle = COLORS.terracotta;
+            ctx.lineWidth = 6;
+            ctx.beginPath();
+            ctx.roundRect(photoX, photoY, photoSize, photoSize, 24);
+            ctx.stroke();
+            finishCard();
+          };
+          img.src = latestPhoto;
+        } else {
+          ctx.fillStyle = COLORS.camel;
+          ctx.beginPath();
+          ctx.roundRect(photoX, photoY, photoSize, photoSize, 24);
+          ctx.fill();
+          ctx.fillStyle = COLORS.navy;
+          ctx.font = '600 22px system-ui';
+          ctx.fillText('No Church Check yet', W / 2, photoY + photoSize / 2);
+          finishCard();
+        }
+      };
+
+      const finishCard = () => {
+        const baseY = 650;
+        ctx.fillStyle = COLORS.navy;
+        ctx.font = '800 64px Georgia';
+        ctx.fillText(`${uniquePews}/${totalPews}`, W / 2, baseY);
+
+        ctx.font = '500 22px system-ui';
+        ctx.fillStyle = COLORS.navy;
+        ctx.fillText('pews completed', W / 2, baseY + 36);
+
+        // progress bar
+        const barY = baseY + 70, barW = 600, barH = 22;
+        const barX = (W - barW) / 2;
+        ctx.fillStyle = '#E3D7C5';
+        ctx.beginPath();
+        ctx.roundRect(barX, barY, barW, barH, 11);
+        ctx.fill();
+        ctx.fillStyle = COLORS.terracotta;
+        ctx.beginPath();
+        ctx.roundRect(barX, barY, barW * (pct / 100), barH, 11);
+        ctx.fill();
+
+        ctx.font = '700 26px system-ui';
+        ctx.fillStyle = COLORS.olive;
+        ctx.fillText(`${pct}% complete`, W / 2, barY + 65);
+
+        ctx.font = '600 18px system-ui';
+        ctx.fillStyle = COLORS.navy;
+        ctx.fillText(`${log.length} Sundays logged · Lehi, UT`, W / 2, H - 50);
+
+        ctx.font = '500 16px system-ui';
+        ctx.fillStyle = COLORS.camel;
+        ctx.fillText('Sit somewhere new. Mix it up.', W / 2, H - 24);
+      };
+
+      renderRest();
+    };
+
+    draw();
+  }, [log, totalPews, uniquePews, pct, latestPhoto]);
+
+  const download = () => {
+    const canvas = canvasRef.current;
+    const link = document.createElement('a');
+    link.download = 'pew-challenge-card.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(20,24,22,0.92)',
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      justifyContent: 'center', zIndex: 50, padding: 16,
+    }}>
+      <canvas
+        ref={canvasRef}
+        style={{ width: '100%', maxWidth: 340, borderRadius: 16, boxShadow: '0 12px 40px rgba(0,0,0,0.4)' }}
+      />
+      <div style={{ display: 'flex', gap: 14, marginTop: 20 }}>
+        <button
+          onClick={onClose}
+          style={{
+            padding: '12px 22px', borderRadius: 999, border: `1px solid ${COLORS.cream}`,
+            background: 'transparent', color: COLORS.cream, fontFamily: 'system-ui', fontSize: 15,
+          }}
+        >
+          Close
+        </button>
+        <button
+          onClick={download}
+          style={{
+            padding: '12px 28px', borderRadius: 999, border: 'none',
+            background: COLORS.terracotta, color: COLORS.cream, fontFamily: 'system-ui',
+            fontSize: 15, fontWeight: 700,
+          }}
+        >
+          Save Image
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---- Pew floor plan ----
+function ChapelMap({ log, selected, onSelectPew }) {
+  // group ALL entries by pew, sorted oldest -> newest
+  const entriesByPew = {};
+  log.forEach((entry) => {
+    const key = pewKey(entry.section, entry.row);
+    if (!entriesByPew[key]) entriesByPew[key] = [];
+    entriesByPew[key].push(entry);
+  });
+  Object.values(entriesByPew).forEach((arr) => arr.sort((a, b) => (a.date < b.date ? -1 : 1)));
+
+  const rowsDesc = Array.from({ length: MAX_ROWS }, (_, i) => MAX_ROWS - i); // back to front
+
+  const shortDate = (iso) => {
+    const d = new Date(iso + 'T12:00:00');
+    return `${d.getMonth() + 1}/${d.getDate()}`;
+  };
+
+  return (
+    <div style={{
+      background: COLORS.navy, borderRadius: 18, padding: '20px 14px 28px',
+      position: 'relative', overflow: 'hidden',
+    }}>
+      {/* "stage" cue at the front */}
+      <div style={{
+        textAlign: 'center', color: COLORS.camel, fontSize: 11, fontWeight: 600,
+        letterSpacing: 2, textTransform: 'uppercase', marginBottom: 14, opacity: 0.7,
+      }}>
+        ✦ pulpit / stand ✦
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {rowsDesc.map((row) => (
+          <div key={row} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{
+              width: 16, fontSize: 10, color: COLORS.camel, opacity: 0.6,
+              textAlign: 'right', fontFamily: 'system-ui',
+            }}>
+              {row}
+            </div>
+            {SECTIONS.map((section) => {
+              const exists = pewExists(section, row);
+              const key = pewKey(section, row);
+              const blocked = BLOCKED.has(key);
+              const entries = entriesByPew[key] || [];
+              const isSelected = selected === key;
+
+              if (!exists) {
+                // no pew here at all — render quiet empty space, not a cell
+                return <div key={key} style={{ flex: 1, height: 26 }} />;
+              }
+
+              let bg = 'rgba(244,237,228,0.08)';
+              let border = 'rgba(244,237,228,0.15)';
+              if (blocked) {
+                bg = COLORS.camel;
+                border = COLORS.camel;
+              } else if (entries.length) {
+                bg = COLORS.terracotta;
+                border = COLORS.terracotta;
+              }
+              if (isSelected) border = COLORS.olive;
+
+              return (
+                <button
+                  key={key}
+                  disabled={blocked}
+                  onClick={() => onSelectPew(key, section, row)}
+                  title={blocked ? 'Sacrament table' : entries.length ? entries.map((e) => fmtDate(e.date)).join(', ') : 'Open pew'}
+                  style={{
+                    flex: 1,
+                    minHeight: 26,
+                    height: 'auto',
+                    borderRadius: 5,
+                    background: bg,
+                    border: `${isSelected ? 2 : 1}px solid ${border}`,
+                    cursor: blocked ? 'default' : 'pointer',
+                    transition: 'transform 0.1s, background 0.2s',
+                    transform: isSelected ? 'scale(1.04)' : 'scale(1)',
+                    padding: '2px 3px',
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 2,
+                  }}
+                >
+                  {entries.length > 0 && entries.map((e) => (
+                    <span
+                      key={e.id}
+                      style={{
+                        fontSize: 8.5,
+                        color: COLORS.cream,
+                        fontWeight: 700,
+                        lineHeight: 1,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {shortDate(e.date)}
+                    </span>
+                  ))}
+                </button>
+              );
+            })}
+            <div style={{ width: 16 }} />
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, paddingLeft: 22, paddingRight: 22 }}>
+        {['Left', 'Center', 'Right'].map((label) => (
+          <div key={label} style={{
+            flex: 1, textAlign: 'center', fontSize: 10, color: COLORS.camel,
+            opacity: 0.6, letterSpacing: 1, textTransform: 'uppercase',
+          }}>
+            {label}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PewChallengeApp() {
+  const [log, setLog] = useState(SEED_LOG);
+  const [pendingPew, setPendingPew] = useState(null); // { key, section, row }
+  const [showCamera, setShowCamera] = useState(false);
+  const [showBragCard, setShowBragCard] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  const totalPews = Object.values(SECTION_ROWS).reduce((sum, n) => sum + n, 0) - BLOCKED.size;
+  const uniquePews = new Set(log.map((l) => pewKey(l.section, l.row))).size;
+  const pct = Math.round((uniquePews / totalPews) * 100);
+
+  const lastEntryForKey = (key) => {
+    const matches = log.filter((l) => pewKey(l.section, l.row) === key);
+    return matches.sort((a, b) => (a.date > b.date ? -1 : 1));
+  };
+
+  const flashToast = (msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2200);
+  };
+
+  const handleSelectPew = (key, section, row) => {
+    setPendingPew({ key, section, row });
+  };
+
+  const logPewNoPhoto = () => {
+    if (!pendingPew) return;
+    const { section, row, key } = pendingPew;
+    const isNew = !log.some((l) => pewKey(l.section, l.row) === key);
+    setLog((prev) => [
+      ...prev,
+      { id: `e${Date.now()}`, section, row, date: todayISO(), photo: null },
+    ]);
+    flashToast(isNew ? '✦ New pew unlocked!' : 'Logged — back for more.');
+    setPendingPew(null);
+  };
+
+  const startChurchCheck = () => setShowCamera(true);
+
+  const handleCapture = (dataUrl) => {
+    if (!pendingPew) {
+      setShowCamera(false);
+      return;
+    }
+    const { section, row, key } = pendingPew;
+    const isNew = !log.some((l) => pewKey(l.section, l.row) === key);
+    setLog((prev) => [
+      ...prev,
+      { id: `e${Date.now()}`, section, row, date: todayISO(), photo: dataUrl },
+    ]);
+    setShowCamera(false);
+    setPendingPew(null);
+    flashToast(isNew ? '✦ New pew + Church Check logged!' : 'Church Check logged!');
+  };
+
+  const recentWithPhotos = [...log].reverse().filter((l) => l.photo).slice(0, 6);
+
+  return (
+    <div style={{
+      minHeight: '100vh', background: COLORS.cream, fontFamily: 'system-ui, -apple-system, sans-serif',
+      paddingBottom: 40,
+    }}>
+      {/* Header */}
+      <div style={{
+        background: COLORS.navy, padding: '22px 20px 26px', borderBottomLeftRadius: 24,
+        borderBottomRightRadius: 24, position: 'relative',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+          <img src={LOGO_URL} alt="Lance the Realtor" style={{ width: 30, height: 30, borderRadius: 6 }} />
+          <span style={{ color: COLORS.camel, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: 600 }}>
+            Lance presents
+          </span>
+        </div>
+        <h1 style={{
+          color: COLORS.cream, fontFamily: 'Georgia, serif', fontSize: 30, fontWeight: 700,
+          margin: '4px 0 2px', letterSpacing: 0.2,
+        }}>
+          The Pew Challenge
+        </h1>
+        <p style={{ color: COLORS.camel, fontSize: 13.5, margin: 0, opacity: 0.9 }}>
+          Sit somewhere new. Mix it up. Church Check it.
+        </p>
+
+        <div style={{ display: 'flex', gap: 14, marginTop: 18 }}>
+          <div style={{ flex: 1, background: 'rgba(244,237,228,0.08)', borderRadius: 12, padding: '10px 14px' }}>
+            <div style={{ color: COLORS.terracotta, fontSize: 26, fontWeight: 800, fontFamily: 'Georgia, serif' }}>
+              {uniquePews}<span style={{ fontSize: 15, color: COLORS.camel }}>/{totalPews}</span>
+            </div>
+            <div style={{ color: COLORS.cream, fontSize: 11, opacity: 0.7 }}>pews completed</div>
+          </div>
+          <div style={{ flex: 1, background: 'rgba(244,237,228,0.08)', borderRadius: 12, padding: '10px 14px' }}>
+            <div style={{ color: COLORS.olive, fontSize: 26, fontWeight: 800, fontFamily: 'Georgia, serif' }}>
+              {log.length}
+            </div>
+            <div style={{ color: COLORS.cream, fontSize: 11, opacity: 0.7 }}>Sundays logged</div>
+          </div>
+          <div style={{ flex: 1, background: 'rgba(244,237,228,0.08)', borderRadius: 12, padding: '10px 14px' }}>
+            <div style={{ color: COLORS.cream, fontSize: 26, fontWeight: 800, fontFamily: 'Georgia, serif' }}>
+              {pct}%
+            </div>
+            <div style={{ color: COLORS.cream, fontSize: 11, opacity: 0.7 }}>chapel covered</div>
+          </div>
+        </div>
+
+        {/* progress bar */}
+        <div style={{ marginTop: 12, height: 8, background: 'rgba(244,237,228,0.12)', borderRadius: 999 }}>
+          <div style={{
+            height: '100%', width: `${pct}%`, background: COLORS.terracotta,
+            borderRadius: 999, transition: 'width 0.3s',
+          }} />
+        </div>
+      </div>
+
+      {/* Map */}
+      <div style={{ padding: '20px 16px 0' }}>
+        <ChapelMap log={log} selected={pendingPew?.key} onSelectPew={handleSelectPew} />
+      </div>
+
+      {/* Legend */}
+      <div style={{ display: 'flex', gap: 16, justifyContent: 'center', padding: '14px 16px 0', fontSize: 11, color: COLORS.navy }}>
+        <LegendDot color={COLORS.terracotta} label="Sat here" />
+        <LegendDot color={COLORS.camel} label="Sacrament table" />
+        <LegendDot color="rgba(47,62,70,0.15)" label="Open pew" />
+      </div>
+
+      {/* Action panel for selected pew */}
+      {pendingPew && (
+        <div style={{
+          margin: '16px 16px 0', background: 'white', borderRadius: 16, padding: 16,
+          border: `1px solid ${COLORS.camel}40`, boxShadow: '0 2px 12px rgba(47,62,70,0.08)',
+        }}>
+          {(() => {
+            const priorEntries = lastEntryForKey(pendingPew.key);
+            return (
+              <>
+                <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.navy, marginBottom: 2 }}>
+                  {pendingPew.section[0].toUpperCase() + pendingPew.section.slice(1)} · Row {pendingPew.row}
+                </div>
+                <div style={{ fontSize: 12.5, color: '#7A8A8F', marginBottom: 12 }}>
+                  {priorEntries.length
+                    ? `Sat here ${priorEntries.length}x: ${priorEntries.map((e) => fmtDate(e.date)).join(' · ')}`
+                    : "You haven't sat here yet — new pew!"}
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button
+                    onClick={startChurchCheck}
+                    style={{
+                      flex: 1, padding: '12px 0', borderRadius: 12, border: 'none',
+                      background: COLORS.terracotta, color: COLORS.cream, fontWeight: 700, fontSize: 14,
+                    }}
+                  >
+                    📸 Church Check
+                  </button>
+                  <button
+                    onClick={logPewNoPhoto}
+                    style={{
+                      flex: 1, padding: '12px 0', borderRadius: 12, border: `1px solid ${COLORS.navy}30`,
+                      background: 'transparent', color: COLORS.navy, fontWeight: 600, fontSize: 14,
+                    }}
+                  >
+                    Log without photo
+                  </button>
+                </div>
+                <button
+                  onClick={() => setPendingPew(null)}
+                  style={{ width: '100%', marginTop: 8, padding: '8px 0', background: 'none', border: 'none', color: '#A09484', fontSize: 12.5 }}
+                >
+                  Cancel
+                </button>
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Recent Church Checks */}
+      {recentWithPhotos.length > 0 && (
+        <div style={{ padding: '20px 16px 0' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.navy, marginBottom: 10, letterSpacing: 0.3 }}>
+            RECENT CHURCH CHECKS
+          </div>
+          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
+            {recentWithPhotos.map((entry) => (
+              <div key={entry.id} style={{ flexShrink: 0, width: 84 }}>
+                <img
+                  src={entry.photo}
+                  alt=""
+                  style={{
+                    width: 84, height: 84, objectFit: 'cover', borderRadius: 12,
+                    border: `2px solid ${COLORS.terracotta}`,
+                  }}
+                />
+                <div style={{ fontSize: 10, color: COLORS.navy, marginTop: 4, textAlign: 'center' }}>
+                  {entry.section[0].toUpperCase()}{entry.row} · {fmtDate(entry.date).split(',')[0]}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Brag card CTA */}
+      <div style={{ padding: '24px 16px 0' }}>
+        <button
+          onClick={() => setShowBragCard(true)}
+          style={{
+            width: '100%', padding: '15px 0', borderRadius: 14, border: 'none',
+            background: COLORS.olive, color: COLORS.cream, fontWeight: 700, fontSize: 15,
+            letterSpacing: 0.3,
+          }}
+        >
+          Generate Brag Card →
+        </button>
+      </div>
+
+      {/* Toast */}
+      {toast && (
+        <div style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          background: COLORS.navy, color: COLORS.cream, padding: '10px 20px',
+          borderRadius: 999, fontSize: 13.5, fontWeight: 600, boxShadow: '0 6px 20px rgba(0,0,0,0.25)',
+          zIndex: 60,
+        }}>
+          {toast}
+        </div>
+      )}
+
+      {showCamera && (
+        <CameraCapture onCapture={handleCapture} onCancel={() => setShowCamera(false)} />
+      )}
+
+      {showBragCard && (
+        <BragCard log={log} totalPews={totalPews} onClose={() => setShowBragCard(false)} />
+      )}
+    </div>
+  );
+}
+
+function LegendDot({ color, label }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+      <div style={{ width: 9, height: 9, borderRadius: 3, background: color }} />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<PewChallengeApp />);
+</script>
+</body>
+</html>
