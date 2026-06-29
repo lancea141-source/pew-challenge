@@ -20,11 +20,18 @@
     box.textContent = 'ERROR:\n' + e.message + '\n\nFile: ' + e.filename + '\nLine: ' + e.lineno + ', Col: ' + e.colno + '\n\nStack:\n' + (e.error && e.error.stack ? e.error.stack : 'none');
   });
 </script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script>
+  const SUPABASE_URL = 'https://lwchcfoctqlqgzzagxfw.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_ljC4A1vwVlJDK02S0Rqsbw_5NySDEAH';
+  window.supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+</script>
 <script id="app-source" type="text/plain">
 const { useState, useRef, useCallback, useEffect } = React;
+const sb = window.supabaseClient;
 
 
 // ---- Brand tokens ----
@@ -38,27 +45,17 @@ const COLORS = {
 
 const LOGO_URL = 'https://drive.google.com/uc?id=1NosHz-mLGpPckIeBhrQpgtwH5YU_Lu6s';
 
-// ---- Chapel layout (seeded from real sheet data) ----
-// rows 1 (front) -> max (back), columns left/center/right
-// left: 1-10 only (rows 11-13 are pulpit access, no pews)
-// center: 1-13, full depth
-// right: 1-12, with 11-12 blocked (sacrament table)
-const SECTION_ROWS = { left: 10, center: 13, right: 12 };
-const MAX_ROWS = 13;
+// ---- Chapel layout helpers ----
+// Layout now comes from the `wards` table per-ward (left_rows, center_rows, right_rows, blocked_pews)
+// rather than being hardcoded, since different wards have different chapel shapes.
 const SECTIONS = ['left', 'center', 'right'];
-const BLOCKED = new Set(['right-11', 'right-12']); // sacrament table
 
-const pewExists = (section, row) => row <= SECTION_ROWS[section];
+const pewExists = (ward, section, row) => {
+  const map = { left: ward.left_rows, center: ward.center_rows, right: ward.right_rows };
+  return row <= map[section];
+};
 
-const SEED_LOG = [
-  { id: 's1', section: 'center', row: 3, date: '2026-05-03', photo: null },
-  { id: 's2', section: 'center', row: 4, date: '2026-05-10', photo: null },
-  { id: 's3', section: 'left', row: 3, date: '2026-05-31', photo: null },
-  { id: 's4', section: 'center', row: 5, date: '2026-06-07', photo: null },
-  { id: 's5', section: 'right', row: 3, date: '2026-06-14', photo: null },
-  { id: 's6', section: 'center', row: 2, date: '2026-06-21', photo: null },
-  { id: 's7', section: 'left', row: 5, date: '2026-06-28', photo: null },
-];
+const isBlocked = (ward, section, row) => ward.blocked_pews.includes(`${section}-${row}`);
 
 const pewKey = (section, row) => `${section}-${row}`;
 
@@ -68,6 +65,7 @@ const fmtDate = (iso) => {
 };
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
+
 
 // ---- Camera capture: BeReal-style dual shot ----
 function CameraCapture({ onCapture, onCancel }) {
@@ -489,7 +487,7 @@ function BragCard({ log, totalPews, onClose }) {
 }
 
 // ---- Pew floor plan ----
-function ChapelMap({ log, selected, onSelectPew }) {
+function ChapelMap({ log, selected, onSelectPew, ward }) {
   // group ALL entries by pew, sorted oldest -> newest
   const entriesByPew = {};
   log.forEach((entry) => {
@@ -499,7 +497,8 @@ function ChapelMap({ log, selected, onSelectPew }) {
   });
   Object.values(entriesByPew).forEach((arr) => arr.sort((a, b) => (a.date < b.date ? -1 : 1)));
 
-  const rowsDesc = Array.from({ length: MAX_ROWS }, (_, i) => MAX_ROWS - i); // back to front
+  const maxRows = Math.max(ward.left_rows, ward.center_rows, ward.right_rows);
+  const rowsDesc = Array.from({ length: maxRows }, (_, i) => maxRows - i); // back to front
 
   const shortDate = (iso) => {
     const d = new Date(iso + 'T12:00:00');
@@ -529,9 +528,9 @@ function ChapelMap({ log, selected, onSelectPew }) {
               {row}
             </div>
             {SECTIONS.map((section) => {
-              const exists = pewExists(section, row);
+              const exists = pewExists(ward, section, row);
               const key = pewKey(section, row);
-              const blocked = BLOCKED.has(key);
+              const blocked = isBlocked(ward, section, row);
               const entries = entriesByPew[key] || [];
               const isSelected = selected === key;
 
@@ -611,16 +610,364 @@ function ChapelMap({ log, selected, onSelectPew }) {
   );
 }
 
-function PewChallengeApp() {
-  const [log, setLog] = useState(SEED_LOG);
+// ---- Auth + ward join/create screen ----
+function AuthScreen({ onAuthed }) {
+  const [mode, setMode] = useState('login'); // 'login' | 'signup'
+  const [signupMode, setSignupMode] = useState('join'); // 'join' | 'create'
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [joinCode, setJoinCode] = useState('');
+
+  // new-ward builder state
+  const [wardName, setWardName] = useState('');
+  const [newJoinCode, setNewJoinCode] = useState('');
+  const [leftRows, setLeftRows] = useState(10);
+  const [centerRows, setCenterRows] = useState(13);
+  const [rightRows, setRightRows] = useState(12);
+  const [blockedSet, setBlockedSet] = useState(new Set());
+
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  const toggleBlocked = (key) => {
+    setBlockedSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  const createAccount = async (wardId) => {
+    const { data: signUpData, error: signUpErr } = await sb.auth.signUp({ email, password });
+    if (signUpErr) throw signUpErr;
+    const userId = signUpData.user?.id;
+    if (userId) {
+      const { error: profileErr } = await sb.from('profiles').insert({
+        id: userId,
+        display_name: displayName || email.split('@')[0],
+        ward_id: wardId,
+      });
+      if (profileErr) throw profileErr;
+    }
+  };
+
+  const handleSubmit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      if (mode === 'signup') {
+        if (signupMode === 'join') {
+          if (!joinCode.trim()) {
+            setError('Enter your ward join code.');
+            setBusy(false);
+            return;
+          }
+          const { data: ward, error: wardErr } = await sb
+            .from('wards')
+            .select('id')
+            .eq('join_code', joinCode.trim())
+            .maybeSingle();
+          if (wardErr || !ward) {
+            setError('That ward join code was not found.');
+            setBusy(false);
+            return;
+          }
+          await createAccount(ward.id);
+        } else {
+          // create new ward — sign up first so we're authenticated for the ward insert (RLS requirement)
+          if (!wardName.trim() || !newJoinCode.trim()) {
+            setError('Enter a ward name and a join code for others to use.');
+            setBusy(false);
+            return;
+          }
+          const { data: signUpData, error: signUpErr } = await sb.auth.signUp({ email, password });
+          if (signUpErr) throw signUpErr;
+          const userId = signUpData.user?.id;
+
+          const { data: newWard, error: wardCreateErr } = await sb
+            .from('wards')
+            .insert({
+              name: wardName.trim(),
+              join_code: newJoinCode.trim(),
+              left_rows: leftRows,
+              center_rows: centerRows,
+              right_rows: rightRows,
+              blocked_pews: Array.from(blockedSet),
+            })
+            .select()
+            .single();
+          if (wardCreateErr) {
+            setError(wardCreateErr.message.includes('duplicate')
+              ? 'That join code is already taken — try another.'
+              : wardCreateErr.message);
+            setBusy(false);
+            return;
+          }
+          if (userId) {
+            const { error: profileErr } = await sb.from('profiles').insert({
+              id: userId,
+              display_name: displayName || email.split('@')[0],
+              ward_id: newWard.id,
+            });
+            if (profileErr) throw profileErr;
+          }
+        }
+        onAuthed();
+      } else {
+        const { error: signInErr } = await sb.auth.signInWithPassword({ email, password });
+        if (signInErr) throw signInErr;
+        onAuthed();
+      }
+    } catch (e) {
+      setError(e.message || 'Something went wrong.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const maxRows = Math.max(leftRows, centerRows, rightRows, 1);
+  const previewRows = Array.from({ length: maxRows }, (_, i) => maxRows - i);
+  const sectionCounts = { left: leftRows, center: centerRows, right: rightRows };
+
+  return (
+    <div style={{
+      minHeight: '100vh', background: COLORS.cream, fontFamily: 'system-ui, -apple-system, sans-serif',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+    }}>
+      <div style={{ width: '100%', maxWidth: 380 }}>
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <img src={LOGO_URL} alt="" style={{ width: 44, height: 44, borderRadius: 10, marginBottom: 10 }} />
+          <h1 style={{ fontFamily: 'Georgia, serif', fontSize: 28, color: COLORS.navy, margin: '0 0 4px' }}>
+            The Pew Challenge
+          </h1>
+          <p style={{ color: COLORS.olive, fontSize: 13.5, margin: 0 }}>
+            Sit somewhere new. Mix it up.
+          </p>
+        </div>
+
+        <div style={{
+          display: 'flex', background: '#fff', borderRadius: 999, padding: 4,
+          marginBottom: 16, border: `1px solid ${COLORS.camel}40`,
+        }}>
+          {['login', 'signup'].map((m) => (
+            <button
+              key={m}
+              onClick={() => { setMode(m); setError(null); }}
+              style={{
+                flex: 1, padding: '10px 0', borderRadius: 999, border: 'none',
+                background: mode === m ? COLORS.navy : 'transparent',
+                color: mode === m ? COLORS.cream : COLORS.navy,
+                fontWeight: 600, fontSize: 14,
+              }}
+            >
+              {m === 'login' ? 'Log In' : 'Sign Up'}
+            </button>
+          ))}
+        </div>
+
+        {mode === 'signup' && (
+          <div style={{
+            display: 'flex', background: 'rgba(47,62,70,0.06)', borderRadius: 999, padding: 4,
+            marginBottom: 16,
+          }}>
+            {[{ k: 'join', label: 'Join my ward' }, { k: 'create', label: 'Start a new ward' }].map((opt) => (
+              <button
+                key={opt.k}
+                onClick={() => { setSignupMode(opt.k); setError(null); }}
+                style={{
+                  flex: 1, padding: '9px 0', borderRadius: 999, border: 'none',
+                  background: signupMode === opt.k ? COLORS.olive : 'transparent',
+                  color: signupMode === opt.k ? COLORS.cream : COLORS.navy,
+                  fontWeight: 600, fontSize: 12.5,
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {mode === 'signup' && (
+            <input
+              placeholder="Your name"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              style={inputStyle}
+            />
+          )}
+          <input
+            placeholder="Email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            style={inputStyle}
+          />
+          <input
+            placeholder="Password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            style={inputStyle}
+          />
+
+          {mode === 'signup' && signupMode === 'join' && (
+            <input
+              placeholder="Ward join code (e.g. TM1-2026)"
+              value={joinCode}
+              onChange={(e) => setJoinCode(e.target.value)}
+              style={inputStyle}
+            />
+          )}
+
+          {mode === 'signup' && signupMode === 'create' && (
+            <>
+              <input
+                placeholder="Ward name (e.g. Traverse Mountain 1st Ward)"
+                value={wardName}
+                onChange={(e) => setWardName(e.target.value)}
+                style={inputStyle}
+              />
+              <input
+                placeholder="Pick a join code for others (e.g. TM1-2026)"
+                value={newJoinCode}
+                onChange={(e) => setNewJoinCode(e.target.value)}
+                style={inputStyle}
+              />
+
+              <div style={{
+                background: '#fff', border: `1px solid ${COLORS.camel}40`, borderRadius: 14,
+                padding: 14, marginTop: 4,
+              }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: COLORS.navy, marginBottom: 10 }}>
+                  Chapel layout
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                  {[
+                    { label: 'Left', val: leftRows, set: setLeftRows },
+                    { label: 'Center', val: centerRows, set: setCenterRows },
+                    { label: 'Right', val: rightRows, set: setRightRows },
+                  ].map((f) => (
+                    <div key={f.label} style={{ flex: 1 }}>
+                      <div style={{ fontSize: 10.5, color: COLORS.olive, marginBottom: 4, textAlign: 'center' }}>
+                        {f.label} rows
+                      </div>
+                      <input
+                        type="number"
+                        min="0"
+                        max="25"
+                        value={f.val}
+                        onChange={(e) => f.set(Math.max(0, parseInt(e.target.value || '0', 10)))}
+                        style={{
+                          ...inputStyle, padding: '8px 6px', textAlign: 'center', fontSize: 14,
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ fontSize: 11.5, color: '#7A8A8F', marginBottom: 8 }}>
+                  Tap pews to mark the sacrament table / blocked spots
+                </div>
+
+                <div style={{
+                  background: COLORS.navy, borderRadius: 12, padding: '12px 8px',
+                }}>
+                  <div style={{
+                    textAlign: 'center', color: COLORS.camel, fontSize: 9, fontWeight: 600,
+                    letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8, opacity: 0.7,
+                  }}>
+                    ✦ pulpit ✦
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    {previewRows.map((row) => (
+                      <div key={row} style={{ display: 'flex', gap: 4 }}>
+                        {SECTIONS.map((section) => {
+                          const exists = row <= sectionCounts[section];
+                          if (!exists) return <div key={section} style={{ flex: 1, height: 14 }} />;
+                          const key = pewKey(section, row);
+                          const blocked = blockedSet.has(key);
+                          return (
+                            <button
+                              key={section}
+                              onClick={() => toggleBlocked(key)}
+                              style={{
+                                flex: 1, height: 14, borderRadius: 3, border: 'none',
+                                background: blocked ? COLORS.camel : 'rgba(244,237,228,0.12)',
+                                padding: 0,
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {error && (
+            <div style={{ color: '#B23A2F', fontSize: 13, fontWeight: 600 }}>{error}</div>
+          )}
+
+          <button
+            onClick={handleSubmit}
+            disabled={busy}
+            style={{
+              padding: '13px 0', borderRadius: 12, border: 'none', marginTop: 6,
+              background: COLORS.terracotta, color: COLORS.cream, fontWeight: 700,
+              fontSize: 15, opacity: busy ? 0.6 : 1,
+            }}
+          >
+            {busy ? 'Please wait…' : mode === 'login' ? 'Log In' : signupMode === 'create' ? 'Create Ward + Account' : 'Create Account'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const inputStyle = {
+  padding: '13px 14px', borderRadius: 12, border: '1px solid #D8CBB8',
+  fontSize: 15, fontFamily: 'system-ui', background: '#fff', color: '#2F3E46',
+};
+
+function PewChallengeApp({ user, profile, ward, onSignOut }) {
+  const [log, setLog] = useState([]);
+  const [loadingLog, setLoadingLog] = useState(true);
   const [pendingPew, setPendingPew] = useState(null); // { key, section, row }
   const [showCamera, setShowCamera] = useState(false);
   const [showBragCard, setShowBragCard] = useState(false);
   const [toast, setToast] = useState(null);
 
-  const totalPews = Object.values(SECTION_ROWS).reduce((sum, n) => sum + n, 0) - BLOCKED.size;
+  // Load this user's pew logs for their ward from Supabase
+  const loadLog = useCallback(async () => {
+    setLoadingLog(true);
+    const { data, error } = await sb
+      .from('pew_logs')
+      .select('id, section, row_num, sat_on, photo_url')
+      .eq('user_id', user.id)
+      .eq('ward_id', ward.id)
+      .order('sat_on', { ascending: true });
+    if (!error && data) {
+      setLog(data.map((row) => ({
+        id: row.id,
+        section: row.section,
+        row: row.row_num,
+        date: row.sat_on,
+        photo: row.photo_url,
+      })));
+    }
+    setLoadingLog(false);
+  }, [user.id, ward.id]);
+
+  useEffect(() => { loadLog(); }, [loadLog]);
+
+  const totalPews = ward.left_rows + ward.center_rows + ward.right_rows - ward.blocked_pews.length;
   const uniquePews = new Set(log.map((l) => pewKey(l.section, l.row))).size;
-  const pct = Math.round((uniquePews / totalPews) * 100);
+  const pct = totalPews > 0 ? Math.round((uniquePews / totalPews) * 100) : 0;
 
   const lastEntryForKey = (key) => {
     const matches = log.filter((l) => pewKey(l.section, l.row) === key);
@@ -636,37 +983,88 @@ function PewChallengeApp() {
     setPendingPew({ key, section, row });
   };
 
-  const logPewNoPhoto = () => {
+  // Uploads a base64 data URL photo to Supabase Storage, returns the public URL
+  const uploadPhoto = async (dataUrl) => {
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    const path = `${user.id}/${Date.now()}.jpg`;
+    const { error: uploadErr } = await sb.storage.from('church-checks').upload(path, blob, {
+      contentType: 'image/jpeg',
+    });
+    if (uploadErr) throw uploadErr;
+    const { data } = sb.storage.from('church-checks').getPublicUrl(path);
+    return data.publicUrl;
+  };
+
+  const logPewNoPhoto = async () => {
     if (!pendingPew) return;
     const { section, row, key } = pendingPew;
     const isNew = !log.some((l) => pewKey(l.section, l.row) === key);
-    setLog((prev) => [
-      ...prev,
-      { id: `e${Date.now()}`, section, row, date: todayISO(), photo: null },
-    ]);
-    flashToast(isNew ? '✦ New pew unlocked!' : 'Logged — back for more.');
+    const { data, error } = await sb.from('pew_logs').insert({
+      user_id: user.id,
+      ward_id: ward.id,
+      section,
+      row_num: row,
+      sat_on: todayISO(),
+    }).select().single();
+    if (!error && data) {
+      setLog((prev) => [...prev, { id: data.id, section, row, date: data.sat_on, photo: null }]);
+      flashToast(isNew ? '✦ New pew unlocked!' : 'Logged — back for more.');
+    } else {
+      flashToast('Could not save — try again.');
+    }
     setPendingPew(null);
   };
 
   const startChurchCheck = () => setShowCamera(true);
 
-  const handleCapture = (dataUrl) => {
+  const handleCapture = async (dataUrl) => {
     if (!pendingPew) {
       setShowCamera(false);
       return;
     }
     const { section, row, key } = pendingPew;
     const isNew = !log.some((l) => pewKey(l.section, l.row) === key);
-    setLog((prev) => [
-      ...prev,
-      { id: `e${Date.now()}`, section, row, date: todayISO(), photo: dataUrl },
-    ]);
     setShowCamera(false);
+
+    let photoUrl = null;
+    try {
+      photoUrl = await uploadPhoto(dataUrl);
+    } catch (e) {
+      flashToast('Photo upload failed — logging without it.');
+    }
+
+    const { data, error } = await sb.from('pew_logs').insert({
+      user_id: user.id,
+      ward_id: ward.id,
+      section,
+      row_num: row,
+      sat_on: todayISO(),
+      photo_url: photoUrl,
+    }).select().single();
+
+    if (!error && data) {
+      setLog((prev) => [...prev, { id: data.id, section, row, date: data.sat_on, photo: photoUrl }]);
+      flashToast(isNew ? '✦ New pew + Church Check logged!' : 'Church Check logged!');
+    } else {
+      flashToast('Could not save — try again.');
+    }
     setPendingPew(null);
-    flashToast(isNew ? '✦ New pew + Church Check logged!' : 'Church Check logged!');
   };
 
   const recentWithPhotos = [...log].reverse().filter((l) => l.photo).slice(0, 6);
+
+  if (loadingLog) {
+    return (
+      <div style={{
+        minHeight: '100vh', background: COLORS.cream, display: 'flex',
+        alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui',
+        color: COLORS.navy,
+      }}>
+        Loading your pew history…
+      </div>
+    );
+  }
 
   return (
     <div style={{
@@ -678,11 +1076,19 @@ function PewChallengeApp() {
         background: COLORS.navy, padding: '22px 20px 26px', borderBottomLeftRadius: 24,
         borderBottomRightRadius: 24, position: 'relative',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-          <img src={LOGO_URL} alt="Lance the Realtor" style={{ width: 30, height: 30, borderRadius: 6 }} />
-          <span style={{ color: COLORS.camel, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: 600 }}>
-            Lance presents
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <img src={LOGO_URL} alt="Lance the Realtor" style={{ width: 30, height: 30, borderRadius: 6 }} />
+            <span style={{ color: COLORS.camel, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: 600 }}>
+              {ward.name}
+            </span>
+          </div>
+          <button
+            onClick={onSignOut}
+            style={{ background: 'none', border: 'none', color: COLORS.camel, fontSize: 11, opacity: 0.7 }}
+          >
+            Sign out
+          </button>
         </div>
         <h1 style={{
           color: COLORS.cream, fontFamily: 'Georgia, serif', fontSize: 30, fontWeight: 700,
@@ -726,7 +1132,7 @@ function PewChallengeApp() {
 
       {/* Map */}
       <div style={{ padding: '20px 16px 0' }}>
-        <ChapelMap log={log} selected={pendingPew?.key} onSelectPew={handleSelectPew} />
+        <ChapelMap log={log} selected={pendingPew?.key} onSelectPew={handleSelectPew} ward={ward} />
       </div>
 
       {/* Legend */}
@@ -858,8 +1264,113 @@ function LegendDot({ color, label }) {
   );
 }
 
+// ---- Top-level app: handles auth session + ward loading ----
+function App() {
+  const [session, setSession] = useState(undefined); // undefined = loading, null = logged out
+  const [profile, setProfile] = useState(null);
+  const [ward, setWard] = useState(null);
+  const [loadErr, setLoadErr] = useState(null);
+
+  const loadProfileAndWard = useCallback(async (userId) => {
+    const { data: prof, error: profErr } = await sb
+      .from('profiles')
+      .select('id, display_name, ward_id')
+      .eq('id', userId)
+      .maybeSingle();
+    if (profErr || !prof) {
+      setLoadErr('Could not load your profile.');
+      return;
+    }
+    const { data: wardRow, error: wardErr } = await sb
+      .from('wards')
+      .select('*')
+      .eq('id', prof.ward_id)
+      .maybeSingle();
+    if (wardErr || !wardRow) {
+      setLoadErr('Could not load your ward.');
+      return;
+    }
+    setProfile(prof);
+    setWard(wardRow);
+  }, []);
+
+  useEffect(() => {
+    sb.auth.getSession().then(({ data }) => {
+      setSession(data.session || null);
+      if (data.session) loadProfileAndWard(data.session.user.id);
+    });
+    const { data: listener } = sb.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+      if (newSession) {
+        loadProfileAndWard(newSession.user.id);
+      } else {
+        setProfile(null);
+        setWard(null);
+      }
+    });
+    return () => listener.subscription.unsubscribe();
+  }, [loadProfileAndWard]);
+
+  const handleSignOut = async () => {
+    await sb.auth.signOut();
+  };
+
+  if (session === undefined) {
+    return (
+      <div style={{
+        minHeight: '100vh', background: COLORS.cream, display: 'flex',
+        alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui', color: COLORS.navy,
+      }}>
+        Loading…
+      </div>
+    );
+  }
+
+  if (!session) {
+    return <AuthScreen onAuthed={() => {}} />;
+  }
+
+  if (loadErr) {
+    return (
+      <div style={{
+        minHeight: '100vh', background: COLORS.cream, display: 'flex',
+        flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        fontFamily: 'system-ui', color: '#B23A2F', padding: 20, textAlign: 'center',
+      }}>
+        {loadErr}
+        <button
+          onClick={handleSignOut}
+          style={{ marginTop: 16, padding: '10px 20px', borderRadius: 10, border: 'none', background: COLORS.navy, color: COLORS.cream }}
+        >
+          Sign out and try again
+        </button>
+      </div>
+    );
+  }
+
+  if (!profile || !ward) {
+    return (
+      <div style={{
+        minHeight: '100vh', background: COLORS.cream, display: 'flex',
+        alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui', color: COLORS.navy,
+      }}>
+        Loading your ward…
+      </div>
+    );
+  }
+
+  return (
+    <PewChallengeApp
+      user={session.user}
+      profile={profile}
+      ward={ward}
+      onSignOut={handleSignOut}
+    />
+  );
+}
+
 const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(<PewChallengeApp />);
+root.render(<App />);
 </script>
 <script>
   (function() {
