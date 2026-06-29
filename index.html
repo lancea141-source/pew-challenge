@@ -641,6 +641,16 @@ function AuthScreen({ onAuthed }) {
   const createAccount = async (wardId) => {
     const { data: signUpData, error: signUpErr } = await sb.auth.signUp({ email, password });
     if (signUpErr) throw signUpErr;
+    if (!signUpData.session) {
+      throw new Error('Account created, but no active session yet — check if email confirmation is required in Supabase Auth settings, or try logging in directly.');
+    }
+    // Explicitly set the session so the client's auth state is guaranteed current
+    // before the next request — signUp() resolving doesn't always mean internal
+    // client state has caught up yet.
+    await sb.auth.setSession({
+      access_token: signUpData.session.access_token,
+      refresh_token: signUpData.session.refresh_token,
+    });
     const userId = signUpData.user?.id;
     if (userId) {
       const { error: profileErr } = await sb.from('profiles').insert({
@@ -683,6 +693,15 @@ function AuthScreen({ onAuthed }) {
           }
           const { data: signUpData, error: signUpErr } = await sb.auth.signUp({ email, password });
           if (signUpErr) throw signUpErr;
+          if (!signUpData.session) {
+            setError('Account created, but no active session yet — check Supabase Auth settings for email confirmation, or try logging in directly.');
+            setBusy(false);
+            return;
+          }
+          await sb.auth.setSession({
+            access_token: signUpData.session.access_token,
+            refresh_token: signUpData.session.refresh_token,
+          });
           const userId = signUpData.user?.id;
 
           const { data: newWard, error: wardCreateErr } = await sb
