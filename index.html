@@ -337,6 +337,136 @@ function CameraCapture({ onCapture, onCancel }) {
   );
 }
 
+// ---- Pew Pal capture: name + selfie ----
+function PalCapture({ onSave, onCancel }) {
+  const [palName, setPalName] = useState('');
+  const [photo, setPhoto] = useState(null);
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const [ready, setReady] = useState(false);
+  const [error, setError] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const stopStream = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    if (photo) { stopStream(); return; }
+    (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+          setReady(true);
+        }
+      } catch (e) {
+        setError('Camera unavailable — use upload instead.');
+      }
+    })();
+    return () => stopStream();
+  }, [photo]);
+
+  const snap = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    setPhoto(canvas.toDataURL('image/jpeg', 0.85));
+  };
+
+  const handleFile = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setPhoto(reader.result);
+    reader.readAsDataURL(file);
+  };
+
+  const handleSave = async () => {
+    if (!palName.trim() || !photo) return;
+    setSaving(true);
+    await onSave(palName.trim(), photo);
+    setSaving(false);
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(20,24,22,0.95)',
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      justifyContent: 'center', zIndex: 50, padding: 16,
+    }}>
+      <div style={{
+        width: '100%', maxWidth: 340, borderRadius: 20, overflow: 'hidden',
+        border: `3px solid ${COLORS.olive}`, background: '#000',
+        aspectRatio: '3/4', position: 'relative',
+      }}>
+        {photo ? (
+          <img src={photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        ) : error ? (
+          <div style={{ color: COLORS.cream, padding: 24, textAlign: 'center', fontFamily: 'system-ui' }}>{error}</div>
+        ) : (
+          <video ref={videoRef} playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
+        )}
+      </div>
+
+      <input
+        placeholder="Pew Pal's name"
+        value={palName}
+        onChange={(e) => setPalName(e.target.value)}
+        style={{ ...inputStyle, width: '100%', maxWidth: 340, marginTop: 14 }}
+      />
+
+      <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFile} style={{ display: 'none' }} />
+
+      <div style={{ display: 'flex', gap: 12, marginTop: 14 }}>
+        <button
+          onClick={onCancel}
+          style={{ padding: '12px 20px', borderRadius: 999, border: `1px solid ${COLORS.cream}`, background: 'transparent', color: COLORS.cream, fontSize: 14 }}
+        >
+          Cancel
+        </button>
+        {!photo && ready && !error && (
+          <button onClick={snap} style={{ padding: '12px 24px', borderRadius: 999, border: 'none', background: COLORS.olive, color: COLORS.cream, fontWeight: 700, fontSize: 14 }}>
+            🤳 Snap
+          </button>
+        )}
+        {!photo && (
+          <button onClick={() => fileInputRef.current?.click()} style={{ padding: '12px 20px', borderRadius: 999, border: `1px solid ${COLORS.olive}`, background: 'transparent', color: COLORS.olive, fontWeight: 700, fontSize: 14 }}>
+            🖼️ Upload
+          </button>
+        )}
+        {photo && (
+          <>
+            <button onClick={() => setPhoto(null)} style={{ padding: '12px 18px', borderRadius: 999, border: `1px solid ${COLORS.camel}`, background: 'transparent', color: COLORS.camel, fontSize: 14 }}>
+              Retake
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={!palName.trim() || saving}
+              style={{ padding: '12px 24px', borderRadius: 999, border: 'none', background: COLORS.terracotta, color: COLORS.cream, fontWeight: 700, fontSize: 14, opacity: (!palName.trim() || saving) ? 0.5 : 1 }}
+            >
+              {saving ? 'Saving…' : 'Save Pew Pal'}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ---- Brag card ----
 function BragCard({ log, totalPews, onClose }) {
   const canvasRef = useRef(null);
@@ -578,14 +708,32 @@ function ChapelMap({ log, selected, onSelectPew, ward }) {
                     <span
                       key={e.id}
                       style={{
-                        fontSize: 8.5,
-                        color: COLORS.cream,
-                        fontWeight: 700,
-                        lineHeight: 1,
-                        whiteSpace: 'nowrap',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 2,
                       }}
                     >
-                      {shortDate(e.date)}
+                      {e.photo && (
+                        <img
+                          src={e.photo}
+                          alt=""
+                          style={{
+                            width: 12, height: 12, borderRadius: 2,
+                            objectFit: 'cover', flexShrink: 0,
+                          }}
+                        />
+                      )}
+                      <span
+                        style={{
+                          fontSize: 8.5,
+                          color: COLORS.cream,
+                          fontWeight: 700,
+                          lineHeight: 1,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {shortDate(e.date)}
+                      </span>
                     </span>
                   ))}
                 </button>
@@ -613,11 +761,13 @@ function ChapelMap({ log, selected, onSelectPew, ward }) {
 // ---- Auth + ward join/create screen ----
 function AuthScreen({ onAuthed }) {
   const [mode, setMode] = useState('login'); // 'login' | 'signup'
-  const [signupMode, setSignupMode] = useState('join'); // 'join' | 'create'
+  const [signupMode, setSignupMode] = useState('join'); // 'join' | 'create' — driven by dropdown selection
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [joinCode, setJoinCode] = useState('');
+  const [wardList, setWardList] = useState([]);
+  const [wardListLoading, setWardListLoading] = useState(true);
 
   // new-ward builder state
   const [wardName, setWardName] = useState('');
@@ -629,6 +779,24 @@ function AuthScreen({ onAuthed }) {
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    sb.from('wards').select('id, name, join_code').order('name').then(({ data }) => {
+      setWardList(data || []);
+      setWardListLoading(false);
+    });
+  }, []);
+
+  const handleWardDropdownChange = (value) => {
+    setError(null);
+    if (value === '__create__') {
+      setSignupMode('create');
+      setJoinCode('');
+    } else {
+      setSignupMode('join');
+      setJoinCode(value);
+    }
+  };
 
   const toggleBlocked = (key) => {
     setBlockedSet((prev) => {
@@ -785,28 +953,6 @@ function AuthScreen({ onAuthed }) {
           ))}
         </div>
 
-        {mode === 'signup' && (
-          <div style={{
-            display: 'flex', background: 'rgba(47,62,70,0.06)', borderRadius: 999, padding: 4,
-            marginBottom: 16,
-          }}>
-            {[{ k: 'join', label: 'Join my ward' }, { k: 'create', label: 'Start a new ward' }].map((opt) => (
-              <button
-                key={opt.k}
-                onClick={() => { setSignupMode(opt.k); setError(null); }}
-                style={{
-                  flex: 1, padding: '9px 0', borderRadius: 999, border: 'none',
-                  background: signupMode === opt.k ? COLORS.olive : 'transparent',
-                  color: signupMode === opt.k ? COLORS.cream : COLORS.navy,
-                  fontWeight: 600, fontSize: 12.5,
-                }}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        )}
-
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {mode === 'signup' && (
             <input
@@ -831,13 +977,21 @@ function AuthScreen({ onAuthed }) {
             style={inputStyle}
           />
 
-          {mode === 'signup' && signupMode === 'join' && (
-            <input
-              placeholder="Ward join code (e.g. TM1-2026)"
-              value={joinCode}
-              onChange={(e) => setJoinCode(e.target.value)}
-              style={inputStyle}
-            />
+          {mode === 'signup' && (
+            <select
+              value={signupMode === 'create' ? '__create__' : joinCode}
+              onChange={(e) => handleWardDropdownChange(e.target.value)}
+              disabled={wardListLoading}
+              style={{ ...inputStyle, appearance: 'none' }}
+            >
+              <option value="" disabled>
+                {wardListLoading ? 'Loading wards…' : 'Select your ward'}
+              </option>
+              {wardList.map((w) => (
+                <option key={w.id} value={w.join_code}>{w.name}</option>
+              ))}
+              <option value="__create__">+ Start a new ward</option>
+            </select>
           )}
 
           {mode === 'signup' && signupMode === 'create' && (
@@ -942,6 +1096,26 @@ function AuthScreen({ onAuthed }) {
           >
             {busy ? 'Please wait…' : mode === 'login' ? 'Log In' : signupMode === 'create' ? 'Create Ward + Account' : 'Create Account'}
           </button>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+            <div style={{ flex: 1, height: 1, background: '#D8CBB8' }} />
+            <span style={{ fontSize: 12, color: '#9AA5A8' }}>or</span>
+            <div style={{ flex: 1, height: 1, background: '#D8CBB8' }} />
+          </div>
+
+          <button
+            onClick={() => onAuthed('guest')}
+            style={{
+              padding: '13px 0', borderRadius: 12, border: `1px solid ${COLORS.navy}30`,
+              background: 'transparent', color: COLORS.navy, fontWeight: 600,
+              fontSize: 15,
+            }}
+          >
+            👀 Try as Guest
+          </button>
+          <div style={{ fontSize: 11, color: '#9AA5A8', textAlign: 'center', marginTop: -4 }}>
+            Demo mode — no account needed
+          </div>
         </div>
       </div>
     </div>
@@ -953,34 +1127,47 @@ const inputStyle = {
   fontSize: 15, fontFamily: 'system-ui', background: '#fff', color: '#2F3E46',
 };
 
-function PewChallengeApp({ user, profile, ward, onSignOut }) {
-  const [log, setLog] = useState([]);
-  const [loadingLog, setLoadingLog] = useState(true);
-  const [pendingPew, setPendingPew] = useState(null); // { key, section, row }
+function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
+  const [log, setLog] = useState(seedLog || []);
+  const [loadingLog, setLoadingLog] = useState(!isGuest);
+  const [pendingPew, setPendingPew] = useState(null);
+  const [pendingDate, setPendingDate] = useState(todayISO());
+  const [pendingNotes, setPendingNotes] = useState('');
   const [showCamera, setShowCamera] = useState(false);
   const [showBragCard, setShowBragCard] = useState(false);
+  const [showGallery, setShowGallery] = useState(false);
   const [toast, setToast] = useState(null);
 
-  // Load this user's pew logs for their ward from Supabase
+  // Pew Pals
+  const [pewPals, setPewPals] = useState([]);
+  const [showPalCapture, setShowPalCapture] = useState(false);
+
+  const loadPewPals = useCallback(async () => {
+    if (isGuest) return;
+    const { data, error } = await sb
+      .from('pew_pals').select('id, pal_name, photo_url, met_on')
+      .eq('user_id', user.id).eq('ward_id', ward.id)
+      .order('met_on', { ascending: false });
+    if (!error && data) setPewPals(data);
+  }, [user.id, ward.id, isGuest]);
+
+  useEffect(() => { loadPewPals(); }, [loadPewPals]);
+
   const loadLog = useCallback(async () => {
+    if (isGuest) return;
     setLoadingLog(true);
     const { data, error } = await sb
-      .from('pew_logs')
-      .select('id, section, row_num, sat_on, photo_url')
-      .eq('user_id', user.id)
-      .eq('ward_id', ward.id)
+      .from('pew_logs').select('id, section, row_num, sat_on, photo_url, notes')
+      .eq('user_id', user.id).eq('ward_id', ward.id)
       .order('sat_on', { ascending: true });
     if (!error && data) {
-      setLog(data.map((row) => ({
-        id: row.id,
-        section: row.section,
-        row: row.row_num,
-        date: row.sat_on,
-        photo: row.photo_url,
+      setLog(data.map((r) => ({
+        id: r.id, section: r.section, row: r.row_num,
+        date: r.sat_on, photo: r.photo_url, notes: r.notes || '',
       })));
     }
     setLoadingLog(false);
-  }, [user.id, ward.id]);
+  }, [user.id, ward.id, isGuest]);
 
   useEffect(() => { loadLog(); }, [loadLog]);
 
@@ -1000,6 +1187,8 @@ function PewChallengeApp({ user, profile, ward, onSignOut }) {
 
   const handleSelectPew = (key, section, row) => {
     setPendingPew({ key, section, row });
+    setPendingDate(todayISO());
+    setPendingNotes('');
   };
 
   // Uploads a base64 data URL photo to Supabase Storage, returns the public URL
@@ -1015,59 +1204,88 @@ function PewChallengeApp({ user, profile, ward, onSignOut }) {
     return data.publicUrl;
   };
 
+  const savePewPal = async (palName, dataUrl) => {
+    if (isGuest) {
+      setPewPals((prev) => [{ id: `gp${Date.now()}`, pal_name: palName, photo_url: dataUrl, met_on: todayISO() }, ...prev]);
+      flashToast(`✦ Pew Pal added: ${palName}! (demo)`);
+      setShowPalCapture(false);
+      return;
+    }
+    let photoUrl = null;
+    try { photoUrl = await uploadPhoto(dataUrl); } catch (e) { flashToast('Photo upload failed.'); return; }
+    const { data, error } = await sb.from('pew_pals').insert({
+      user_id: user.id, ward_id: ward.id,
+      pal_name: palName, photo_url: photoUrl, met_on: todayISO(),
+    }).select().single();
+    if (!error && data) {
+      setPewPals((prev) => [data, ...prev]);
+      flashToast(`✦ Pew Pal added: ${palName}!`);
+    } else { flashToast('Could not save Pew Pal — try again.'); }
+    setShowPalCapture(false);
+  };
+
   const logPewNoPhoto = async () => {
     if (!pendingPew) return;
     const { section, row, key } = pendingPew;
     const isNew = !log.some((l) => pewKey(l.section, l.row) === key);
+    if (isGuest) {
+      setLog((prev) => [...prev, { id: `g${Date.now()}`, section, row, date: pendingDate, photo: null, notes: pendingNotes }]);
+      flashToast(isNew ? '✦ New pew unlocked! (demo)' : 'Logged (demo)');
+      setPendingPew(null);
+      return;
+    }
     const { data, error } = await sb.from('pew_logs').insert({
-      user_id: user.id,
-      ward_id: ward.id,
-      section,
-      row_num: row,
-      sat_on: todayISO(),
+      user_id: user.id, ward_id: ward.id,
+      section, row_num: row, sat_on: pendingDate, notes: pendingNotes,
     }).select().single();
     if (!error && data) {
-      setLog((prev) => [...prev, { id: data.id, section, row, date: data.sat_on, photo: null }]);
+      setLog((prev) => [...prev, { id: data.id, section, row, date: data.sat_on, photo: null, notes: pendingNotes }]);
       flashToast(isNew ? '✦ New pew unlocked!' : 'Logged — back for more.');
-    } else {
-      flashToast('Could not save — try again.');
-    }
+    } else { flashToast('Could not save — try again.'); }
     setPendingPew(null);
   };
 
   const startChurchCheck = () => setShowCamera(true);
 
+  const fileInputRef = useRef(null);
+  const triggerFileUpload = () => fileInputRef.current?.click();
+
+  const handleFileChosen = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // reset so the same file can be picked again later
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => handleCapture(reader.result);
+    reader.readAsDataURL(file);
+  };
+
   const handleCapture = async (dataUrl) => {
-    if (!pendingPew) {
-      setShowCamera(false);
-      return;
-    }
+    if (!pendingPew) { setShowCamera(false); return; }
     const { section, row, key } = pendingPew;
     const isNew = !log.some((l) => pewKey(l.section, l.row) === key);
     setShowCamera(false);
 
-    let photoUrl = null;
-    try {
-      photoUrl = await uploadPhoto(dataUrl);
-    } catch (e) {
-      flashToast('Photo upload failed — logging without it.');
+    if (isGuest) {
+      setLog((prev) => [...prev, { id: `g${Date.now()}`, section, row, date: pendingDate, photo: dataUrl, notes: pendingNotes }]);
+      flashToast(isNew ? '✦ New pew + Church Check! (demo)' : 'Church Check logged (demo)');
+      setPendingPew(null);
+      return;
     }
 
+    let photoUrl = null;
+    try { photoUrl = await uploadPhoto(dataUrl); }
+    catch (e) { flashToast('Photo upload failed — logging without it.'); }
+
     const { data, error } = await sb.from('pew_logs').insert({
-      user_id: user.id,
-      ward_id: ward.id,
-      section,
-      row_num: row,
-      sat_on: todayISO(),
-      photo_url: photoUrl,
+      user_id: user.id, ward_id: ward.id,
+      section, row_num: row, sat_on: pendingDate,
+      photo_url: photoUrl, notes: pendingNotes,
     }).select().single();
 
     if (!error && data) {
-      setLog((prev) => [...prev, { id: data.id, section, row, date: data.sat_on, photo: photoUrl }]);
+      setLog((prev) => [...prev, { id: data.id, section, row, date: data.sat_on, photo: photoUrl, notes: pendingNotes }]);
       flashToast(isNew ? '✦ New pew + Church Check logged!' : 'Church Check logged!');
-    } else {
-      flashToast('Could not save — try again.');
-    }
+    } else { flashToast('Could not save — try again.'); }
     setPendingPew(null);
   };
 
@@ -1174,11 +1392,35 @@ function PewChallengeApp({ user, profile, ward, onSignOut }) {
                 <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.navy, marginBottom: 2 }}>
                   {pendingPew.section[0].toUpperCase() + pendingPew.section.slice(1)} · Row {pendingPew.row}
                 </div>
-                <div style={{ fontSize: 12.5, color: '#7A8A8F', marginBottom: 12 }}>
+                <div style={{ fontSize: 12.5, color: '#7A8A8F', marginBottom: 8 }}>
                   {priorEntries.length
                     ? `Sat here ${priorEntries.length}x: ${priorEntries.map((e) => fmtDate(e.date)).join(' · ')}`
                     : "You haven't sat here yet — new pew!"}
                 </div>
+
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 10.5, color: COLORS.olive, marginBottom: 3, fontWeight: 600 }}>Date sat</div>
+                    <input
+                      type="date"
+                      value={pendingDate}
+                      max={todayISO()}
+                      onChange={(e) => setPendingDate(e.target.value)}
+                      style={{ ...inputStyle, padding: '8px 10px', fontSize: 13, width: '100%' }}
+                    />
+                  </div>
+                </div>
+
+                <textarea
+                  placeholder="Notes — names of new friends, memories…"
+                  value={pendingNotes}
+                  onChange={(e) => setPendingNotes(e.target.value)}
+                  rows={2}
+                  style={{
+                    ...inputStyle, width: '100%', resize: 'none', fontSize: 13,
+                    padding: '8px 10px', marginBottom: 8,
+                  }}
+                />
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button
                     onClick={startChurchCheck}
@@ -1190,15 +1432,32 @@ function PewChallengeApp({ user, profile, ward, onSignOut }) {
                     📸 Church Check
                   </button>
                   <button
-                    onClick={logPewNoPhoto}
+                    onClick={triggerFileUpload}
                     style={{
-                      flex: 1, padding: '12px 0', borderRadius: 12, border: `1px solid ${COLORS.navy}30`,
-                      background: 'transparent', color: COLORS.navy, fontWeight: 600, fontSize: 14,
+                      flex: 1, padding: '12px 0', borderRadius: 12, border: `1px solid ${COLORS.terracotta}`,
+                      background: 'transparent', color: COLORS.terracotta, fontWeight: 700, fontSize: 14,
                     }}
                   >
-                    Log without photo
+                    🖼️ Upload photo
                   </button>
                 </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileChosen}
+                  style={{ display: 'none' }}
+                />
+                <button
+                  onClick={logPewNoPhoto}
+                  style={{
+                    width: '100%', marginTop: 10, padding: '12px 0', borderRadius: 12,
+                    border: `1px solid ${COLORS.navy}30`, background: 'transparent',
+                    color: COLORS.navy, fontWeight: 600, fontSize: 14,
+                  }}
+                >
+                  Log without photo
+                </button>
                 <button
                   onClick={() => setPendingPew(null)}
                   style={{ width: '100%', marginTop: 8, padding: '8px 0', background: 'none', border: 'none', color: '#A09484', fontSize: 12.5 }}
@@ -1237,6 +1496,50 @@ function PewChallengeApp({ user, profile, ward, onSignOut }) {
         </div>
       )}
 
+      {/* Pew Pals */}
+      <div style={{ padding: '20px 16px 0' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.navy, letterSpacing: 0.3 }}>
+            PEW PALS
+          </div>
+          <button
+            onClick={() => setShowPalCapture(true)}
+            style={{
+              background: COLORS.olive, color: COLORS.cream, border: 'none',
+              borderRadius: 999, padding: '6px 14px', fontSize: 12, fontWeight: 700,
+            }}
+          >
+            + New Pal
+          </button>
+        </div>
+        {pewPals.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: '#9AA5A8' }}>
+            Sit by someone new and add them as a Pew Pal.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
+            {pewPals.map((pal) => (
+              <div key={pal.id} style={{ flexShrink: 0, width: 84, textAlign: 'center' }}>
+                <img
+                  src={pal.photo_url}
+                  alt={pal.pal_name}
+                  style={{
+                    width: 84, height: 84, objectFit: 'cover', borderRadius: 12,
+                    border: `2px solid ${COLORS.olive}`,
+                  }}
+                />
+                <div style={{ fontSize: 11, fontWeight: 600, color: COLORS.navy, marginTop: 4 }}>
+                  {pal.pal_name}
+                </div>
+                <div style={{ fontSize: 9.5, color: '#9AA5A8' }}>
+                  {fmtDate(pal.met_on).split(',')[0]}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Brag card CTA */}
       <div style={{ padding: '24px 16px 0' }}>
         <button
@@ -1248,6 +1551,16 @@ function PewChallengeApp({ user, profile, ward, onSignOut }) {
           }}
         >
           Generate Brag Card →
+        </button>
+        <button
+          onClick={() => setShowGallery(true)}
+          style={{
+            width: '100%', marginTop: 10, padding: '15px 0', borderRadius: 14,
+            border: `1px solid ${COLORS.navy}30`, background: 'transparent',
+            color: COLORS.navy, fontWeight: 700, fontSize: 15, letterSpacing: 0.3,
+          }}
+        >
+          📷 Photo Gallery
         </button>
       </div>
 
@@ -1270,6 +1583,85 @@ function PewChallengeApp({ user, profile, ward, onSignOut }) {
       {showBragCard && (
         <BragCard log={log} totalPews={totalPews} onClose={() => setShowBragCard(false)} />
       )}
+
+      {showPalCapture && (
+        <PalCapture onSave={savePewPal} onCancel={() => setShowPalCapture(false)} />
+      )}
+
+      {showGallery && (
+        <Gallery log={log} onClose={() => setShowGallery(false)} />
+      )}
+    </div>
+  );
+}
+
+// ---- Photo Gallery modal ----
+function Gallery({ log, onClose }) {
+  const [selected, setSelected] = useState(null);
+  const withPhotos = [...log].filter((e) => e.photo).reverse();
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: COLORS.navy, zIndex: 50,
+      display: 'flex', flexDirection: 'column', overflow: 'hidden',
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '18px 20px 12px',
+      }}>
+        <div style={{ color: COLORS.cream, fontFamily: 'Georgia, serif', fontSize: 20, fontWeight: 700 }}>
+          Church Checks
+        </div>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', color: COLORS.camel, fontSize: 24, lineHeight: 1 }}>✕</button>
+      </div>
+
+      {selected ? (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <img
+            src={selected.photo}
+            alt=""
+            style={{ width: '100%', maxHeight: '70vh', objectFit: 'contain', borderRadius: 16 }}
+          />
+          <div style={{ color: COLORS.cream, marginTop: 12, fontSize: 14, fontWeight: 600 }}>
+            {selected.section[0].toUpperCase() + selected.section.slice(1)} · Row {selected.row} · {fmtDate(selected.date)}
+          </div>
+          {selected.notes ? (
+            <div style={{ color: COLORS.camel, marginTop: 6, fontSize: 13, textAlign: 'center', maxWidth: 320 }}>
+              {selected.notes}
+            </div>
+          ) : null}
+          <button
+            onClick={() => setSelected(null)}
+            style={{ marginTop: 20, padding: '10px 28px', borderRadius: 999, border: `1px solid ${COLORS.cream}`, background: 'transparent', color: COLORS.cream, fontSize: 14 }}
+          >
+            ← Back to grid
+          </button>
+        </div>
+      ) : (
+        <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 24px' }}>
+          {withPhotos.length === 0 ? (
+            <div style={{ color: COLORS.camel, textAlign: 'center', marginTop: 40, fontSize: 14 }}>
+              No Church Checks yet — snap one from the map!
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4 }}>
+              {withPhotos.map((entry) => (
+                <div
+                  key={entry.id}
+                  onClick={() => setSelected(entry)}
+                  style={{ aspectRatio: '1', overflow: 'hidden', borderRadius: 8, cursor: 'pointer' }}
+                >
+                  <img
+                    src={entry.photo}
+                    alt=""
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1283,12 +1675,31 @@ function LegendDot({ color, label }) {
   );
 }
 
+// ---- Guest mode seed data ----
+const GUEST_WARD = {
+  id: 'guest', name: 'Demo Ward (TM1)', join_code: 'GUEST',
+  left_rows: 10, center_rows: 13, right_rows: 12,
+  blocked_pews: ['right-11', 'right-12'],
+};
+const GUEST_USER = { id: 'guest' };
+const GUEST_PROFILE = { id: 'guest', display_name: 'Guest', ward_id: 'guest' };
+const GUEST_LOG = [
+  { id: 'g1', section: 'center', row: 3, date: '2026-05-03', photo: null, notes: '' },
+  { id: 'g2', section: 'center', row: 4, date: '2026-05-10', photo: null, notes: '' },
+  { id: 'g3', section: 'left',   row: 3, date: '2026-05-31', photo: null, notes: '' },
+  { id: 'g4', section: 'center', row: 5, date: '2026-06-07', photo: null, notes: '' },
+  { id: 'g5', section: 'right',  row: 3, date: '2026-06-14', photo: null, notes: '' },
+  { id: 'g6', section: 'center', row: 2, date: '2026-06-21', photo: null, notes: '' },
+  { id: 'g7', section: 'left',   row: 5, date: '2026-06-28', photo: null, notes: '' },
+];
+
 // ---- Top-level app: handles auth session + ward loading ----
 function App() {
   const [session, setSession] = useState(undefined); // undefined = loading, null = logged out
   const [profile, setProfile] = useState(null);
   const [ward, setWard] = useState(null);
   const [loadErr, setLoadErr] = useState(null);
+  const [guestMode, setGuestMode] = useState(false);
 
   const loadProfileAndWard = useCallback(async (userId) => {
     const { data: prof, error: profErr } = await sb
@@ -1296,19 +1707,10 @@ function App() {
       .select('id, display_name, ward_id')
       .eq('id', userId)
       .maybeSingle();
-    if (profErr || !prof) {
-      setLoadErr('Could not load your profile.');
-      return;
-    }
+    if (profErr || !prof) { setLoadErr('Could not load your profile.'); return; }
     const { data: wardRow, error: wardErr } = await sb
-      .from('wards')
-      .select('*')
-      .eq('id', prof.ward_id)
-      .maybeSingle();
-    if (wardErr || !wardRow) {
-      setLoadErr('Could not load your ward.');
-      return;
-    }
+      .from('wards').select('*').eq('id', prof.ward_id).maybeSingle();
+    if (wardErr || !wardRow) { setLoadErr('Could not load your ward.'); return; }
     setProfile(prof);
     setWard(wardRow);
   }, []);
@@ -1320,47 +1722,46 @@ function App() {
     });
     const { data: listener } = sb.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
-      if (newSession) {
-        loadProfileAndWard(newSession.user.id);
-      } else {
-        setProfile(null);
-        setWard(null);
-      }
+      if (newSession) { loadProfileAndWard(newSession.user.id); }
+      else { setProfile(null); setWard(null); }
     });
     return () => listener.subscription.unsubscribe();
   }, [loadProfileAndWard]);
 
+  const handleAuthed = (mode) => {
+    if (mode === 'guest') setGuestMode(true);
+    // real auth handled by onAuthStateChange listener
+  };
+
   const handleSignOut = async () => {
+    if (guestMode) { setGuestMode(false); return; }
     await sb.auth.signOut();
   };
 
+  if (guestMode) {
+    return (
+      <PewChallengeApp
+        user={GUEST_USER} profile={GUEST_PROFILE} ward={GUEST_WARD}
+        onSignOut={handleSignOut} isGuest={true} seedLog={GUEST_LOG}
+      />
+    );
+  }
+
   if (session === undefined) {
     return (
-      <div style={{
-        minHeight: '100vh', background: COLORS.cream, display: 'flex',
-        alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui', color: COLORS.navy,
-      }}>
+      <div style={{ minHeight: '100vh', background: COLORS.cream, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui', color: COLORS.navy }}>
         Loading…
       </div>
     );
   }
 
-  if (!session) {
-    return <AuthScreen onAuthed={() => {}} />;
-  }
+  if (!session) return <AuthScreen onAuthed={handleAuthed} />;
 
   if (loadErr) {
     return (
-      <div style={{
-        minHeight: '100vh', background: COLORS.cream, display: 'flex',
-        flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        fontFamily: 'system-ui', color: '#B23A2F', padding: 20, textAlign: 'center',
-      }}>
+      <div style={{ minHeight: '100vh', background: COLORS.cream, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui', color: '#B23A2F', padding: 20, textAlign: 'center' }}>
         {loadErr}
-        <button
-          onClick={handleSignOut}
-          style={{ marginTop: 16, padding: '10px 20px', borderRadius: 10, border: 'none', background: COLORS.navy, color: COLORS.cream }}
-        >
+        <button onClick={handleSignOut} style={{ marginTop: 16, padding: '10px 20px', borderRadius: 10, border: 'none', background: COLORS.navy, color: COLORS.cream }}>
           Sign out and try again
         </button>
       </div>
@@ -1369,22 +1770,14 @@ function App() {
 
   if (!profile || !ward) {
     return (
-      <div style={{
-        minHeight: '100vh', background: COLORS.cream, display: 'flex',
-        alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui', color: COLORS.navy,
-      }}>
+      <div style={{ minHeight: '100vh', background: COLORS.cream, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui', color: COLORS.navy }}>
         Loading your ward…
       </div>
     );
   }
 
   return (
-    <PewChallengeApp
-      user={session.user}
-      profile={profile}
-      ward={ward}
-      onSignOut={handleSignOut}
-    />
+    <PewChallengeApp user={session.user} profile={profile} ward={ward} onSignOut={handleSignOut} isGuest={false} seedLog={null} />
   );
 }
 
@@ -1392,7 +1785,7 @@ const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(<App />);
 </script>
 <script>
-  (function() {
+  window.addEventListener('load', function() {
     var src = document.getElementById('app-source').textContent;
     var transformed = Babel.transform(src, {
       presets: [['react', { runtime: 'classic' }]],
@@ -1402,7 +1795,7 @@ root.render(<App />);
     var script = document.createElement('script');
     script.text = transformed;
     document.body.appendChild(script);
-  })();
+  });
 </script>
 </body>
 </html>
