@@ -1,3 +1,4 @@
+<!-- Pew Challenge v12 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1229,17 +1230,22 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
     const { section, row, key } = pendingPew;
     const isNew = !log.some((l) => pewKey(l.section, l.row) === key);
     if (isGuest) {
+      const alreadyToday = log.some((l) => pewKey(l.section, l.row) === key && l.date === pendingDate);
+      if (alreadyToday) { flashToast('Already logged this pew for that date.'); setPendingPew(null); return; }
       setLog((prev) => [...prev, { id: `g${Date.now()}`, section, row, date: pendingDate, photo: null, notes: pendingNotes }]);
       flashToast(isNew ? '✦ New pew unlocked! (demo)' : 'Logged (demo)');
       setPendingPew(null);
       return;
     }
-    const { data, error } = await sb.from('pew_logs').insert({
+    const { data, error } = await sb.from('pew_logs').upsert({
       user_id: user.id, ward_id: ward.id,
       section, row_num: row, sat_on: pendingDate, notes: pendingNotes,
-    }).select().single();
+    }, { onConflict: 'user_id,ward_id,section,row_num,sat_on', ignoreDuplicates: false }).select().single();
     if (!error && data) {
-      setLog((prev) => [...prev, { id: data.id, section, row, date: data.sat_on, photo: null, notes: pendingNotes }]);
+      setLog((prev) => {
+        const filtered = prev.filter((l) => !(pewKey(l.section, l.row) === key && l.date === pendingDate));
+        return [...filtered, { id: data.id, section, row, date: data.sat_on, photo: data.photo_url || null, notes: pendingNotes }];
+      });
       flashToast(isNew ? '✦ New pew unlocked!' : 'Logged — back for more.');
     } else { flashToast('Could not save — try again.'); }
     setPendingPew(null);
@@ -1266,7 +1272,10 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
     setShowCamera(false);
 
     if (isGuest) {
-      setLog((prev) => [...prev, { id: `g${Date.now()}`, section, row, date: pendingDate, photo: dataUrl, notes: pendingNotes }]);
+      setLog((prev) => {
+        const filtered = prev.filter((l) => !(pewKey(l.section, l.row) === key && l.date === pendingDate));
+        return [...filtered, { id: `g${Date.now()}`, section, row, date: pendingDate, photo: dataUrl, notes: pendingNotes }];
+      });
       flashToast(isNew ? '✦ New pew + Church Check! (demo)' : 'Church Check logged (demo)');
       setPendingPew(null);
       return;
@@ -1276,14 +1285,17 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
     try { photoUrl = await uploadPhoto(dataUrl); }
     catch (e) { flashToast('Photo upload failed — logging without it.'); }
 
-    const { data, error } = await sb.from('pew_logs').insert({
+    const { data, error } = await sb.from('pew_logs').upsert({
       user_id: user.id, ward_id: ward.id,
       section, row_num: row, sat_on: pendingDate,
       photo_url: photoUrl, notes: pendingNotes,
-    }).select().single();
+    }, { onConflict: 'user_id,ward_id,section,row_num,sat_on', ignoreDuplicates: false }).select().single();
 
     if (!error && data) {
-      setLog((prev) => [...prev, { id: data.id, section, row, date: data.sat_on, photo: photoUrl, notes: pendingNotes }]);
+      setLog((prev) => {
+        const filtered = prev.filter((l) => !(pewKey(l.section, l.row) === key && l.date === pendingDate));
+        return [...filtered, { id: data.id, section, row, date: data.sat_on, photo: photoUrl, notes: pendingNotes }];
+      });
       flashToast(isNew ? '✦ New pew + Church Check logged!' : 'Church Check logged!');
     } else { flashToast('Could not save — try again.'); }
     setPendingPew(null);
