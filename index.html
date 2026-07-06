@@ -1,4 +1,4 @@
-<!-- Pew Challenge v15 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
+<!-- Pew Challenge v16 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1257,27 +1257,48 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
   const startChurchCheck = () => setShowCamera(true);
 
   const fileInputRef = useRef(null);
-  const triggerFileUpload = () => fileInputRef.current?.click();
+  const pendingDateRef = useRef(pendingDate);
+  const pendingPewRef = useRef(pendingPew);
+  const pendingNotesRef = useRef(pendingNotes);
+  useEffect(() => { pendingDateRef.current = pendingDate; }, [pendingDate]);
+  useEffect(() => { pendingPewRef.current = pendingPew; }, [pendingPew]);
+  useEffect(() => { pendingNotesRef.current = pendingNotes; }, [pendingNotes]);
+
+  const triggerFileUpload = () => {
+    // Snapshot current state into refs right before opening picker
+    pendingDateRef.current = pendingDate;
+    pendingPewRef.current = pendingPew;
+    pendingNotesRef.current = pendingNotes;
+    fileInputRef.current?.click();
+  };
 
   const handleFileChosen = (e) => {
     const file = e.target.files?.[0];
-    e.target.value = ''; // reset so the same file can be picked again later
+    e.target.value = '';
     if (!file) return;
+    // Use ref values — state may have reset by the time onload fires on iOS
+    const snapDate = pendingDateRef.current;
+    const snapPew = pendingPewRef.current;
+    const snapNotes = pendingNotesRef.current;
     const reader = new FileReader();
-    reader.onload = () => handleCapture(reader.result);
+    reader.onload = () => handleCaptureWithContext(reader.result, snapDate, snapPew, snapNotes);
     reader.readAsDataURL(file);
   };
 
   const handleCapture = async (dataUrl) => {
-    if (!pendingPew) { setShowCamera(false); return; }
-    const { section, row, key } = pendingPew;
+    await handleCaptureWithContext(dataUrl, pendingDate, pendingPew, pendingNotes);
+  };
+
+  const handleCaptureWithContext = async (dataUrl, snapDate, snapPew, snapNotes) => {
+    if (!snapPew) { setShowCamera(false); return; }
+    const { section, row, key } = snapPew;
     const isNew = !log.some((l) => pewKey(l.section, l.row) === key);
     setShowCamera(false);
 
     if (isGuest) {
       setLog((prev) => {
-        const filtered = prev.filter((l) => !(pewKey(l.section, l.row) === key && l.date === pendingDate));
-        return [...filtered, { id: `g${Date.now()}`, section, row, date: pendingDate, photo: dataUrl, notes: pendingNotes }];
+        const filtered = prev.filter((l) => !(pewKey(l.section, l.row) === key && l.date === snapDate));
+        return [...filtered, { id: `g${Date.now()}`, section, row, date: snapDate, photo: dataUrl, notes: snapNotes }];
       });
       flashToast(isNew ? '✦ New pew + Church Check! (demo)' : 'Church Check logged (demo)');
       setPendingPew(null);
@@ -1288,24 +1309,20 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
     try { photoUrl = await uploadPhoto(dataUrl); }
     catch (e) { flashToast('Photo upload failed — logging without it.'); }
 
-    // Check if a row already exists for this pew + date
-    const existingRow = log.find((l) => pewKey(l.section, l.row) === key && l.date === pendingDate);
-
+    const existingRow = log.find((l) => pewKey(l.section, l.row) === key && l.date === snapDate);
     let savedId = existingRow?.id;
     let saveError = null;
 
     if (existingRow) {
-      // Update existing row with photo
       const { error } = await sb.from('pew_logs')
-        .update({ photo_url: photoUrl, notes: pendingNotes })
+        .update({ photo_url: photoUrl, notes: snapNotes })
         .eq('id', existingRow.id);
       saveError = error;
     } else {
-      // Insert new row
       const { data, error } = await sb.from('pew_logs').insert({
         user_id: user.id, ward_id: ward.id,
-        section, row_num: row, sat_on: pendingDate,
-        photo_url: photoUrl, notes: pendingNotes,
+        section, row_num: row, sat_on: snapDate,
+        photo_url: photoUrl, notes: snapNotes,
       }).select().single();
       saveError = error;
       if (data) savedId = data.id;
@@ -1313,8 +1330,8 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
 
     if (!saveError) {
       setLog((prev) => {
-        const filtered = prev.filter((l) => !(pewKey(l.section, l.row) === key && l.date === pendingDate));
-        return [...filtered, { id: savedId, section, row, date: pendingDate, photo: photoUrl, notes: pendingNotes }];
+        const filtered = prev.filter((l) => !(pewKey(l.section, l.row) === key && l.date === snapDate));
+        return [...filtered, { id: savedId, section, row, date: snapDate, photo: photoUrl, notes: snapNotes }];
       });
       flashToast(isNew ? '✦ New pew + Church Check logged!' : 'Church Check logged!');
     } else { flashToast('Could not save — try again.'); }
