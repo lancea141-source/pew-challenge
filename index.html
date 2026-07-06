@@ -1,4 +1,4 @@
-<!-- Pew Challenge v13 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
+<!-- Pew Challenge v14 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1285,16 +1285,33 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
     try { photoUrl = await uploadPhoto(dataUrl); }
     catch (e) { flashToast('Photo upload failed — logging without it.'); }
 
-    const { data, error } = await sb.from('pew_logs').upsert({
-      user_id: user.id, ward_id: ward.id,
-      section, row_num: row, sat_on: pendingDate,
-      photo_url: photoUrl, notes: pendingNotes,
-    }, { onConflict: 'user_id,ward_id,section,row_num,sat_on', ignoreDuplicates: false }).select().single();
+    // Check if a row already exists for this pew + date
+    const existingRow = log.find((l) => pewKey(l.section, l.row) === key && l.date === pendingDate);
 
-    if (!error && data) {
+    let savedId = existingRow?.id;
+    let saveError = null;
+
+    if (existingRow) {
+      // Update existing row with photo
+      const { error } = await sb.from('pew_logs')
+        .update({ photo_url: photoUrl, notes: pendingNotes })
+        .eq('id', existingRow.id);
+      saveError = error;
+    } else {
+      // Insert new row
+      const { data, error } = await sb.from('pew_logs').insert({
+        user_id: user.id, ward_id: ward.id,
+        section, row_num: row, sat_on: pendingDate,
+        photo_url: photoUrl, notes: pendingNotes,
+      }).select().single();
+      saveError = error;
+      if (data) savedId = data.id;
+    }
+
+    if (!saveError) {
       setLog((prev) => {
         const filtered = prev.filter((l) => !(pewKey(l.section, l.row) === key && l.date === pendingDate));
-        return [...filtered, { id: data.id, section, row, date: pendingDate, photo: photoUrl, notes: pendingNotes }];
+        return [...filtered, { id: savedId, section, row, date: pendingDate, photo: photoUrl, notes: pendingNotes }];
       });
       flashToast(isNew ? '✦ New pew + Church Check logged!' : 'Church Check logged!');
     } else { flashToast('Could not save — try again.'); }
