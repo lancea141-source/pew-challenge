@@ -1,4 +1,4 @@
-<!-- Pew Challenge v12 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
+<!-- Pew Challenge v13 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1244,7 +1244,7 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
     if (!error && data) {
       setLog((prev) => {
         const filtered = prev.filter((l) => !(pewKey(l.section, l.row) === key && l.date === pendingDate));
-        return [...filtered, { id: data.id, section, row, date: data.sat_on, photo: data.photo_url || null, notes: pendingNotes }];
+        return [...filtered, { id: data.id, section, row, date: pendingDate, photo: data.photo_url || null, notes: pendingNotes }];
       });
       flashToast(isNew ? '✦ New pew unlocked!' : 'Logged — back for more.');
     } else { flashToast('Could not save — try again.'); }
@@ -1294,7 +1294,7 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
     if (!error && data) {
       setLog((prev) => {
         const filtered = prev.filter((l) => !(pewKey(l.section, l.row) === key && l.date === pendingDate));
-        return [...filtered, { id: data.id, section, row, date: data.sat_on, photo: photoUrl, notes: pendingNotes }];
+        return [...filtered, { id: data.id, section, row, date: pendingDate, photo: photoUrl, notes: pendingNotes }];
       });
       flashToast(isNew ? '✦ New pew + Church Check logged!' : 'Church Check logged!');
     } else { flashToast('Could not save — try again.'); }
