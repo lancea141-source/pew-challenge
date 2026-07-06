@@ -1,4 +1,4 @@
-<!-- Pew Challenge v14 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
+<!-- Pew Challenge v15 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1187,9 +1187,12 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
   };
 
   const handleSelectPew = (key, section, row) => {
+    const existing = log.filter((l) => pewKey(l.section, l.row) === key)
+      .sort((a, b) => (a.date > b.date ? -1 : 1));
+    const mostRecent = existing[0];
     setPendingPew({ key, section, row });
-    setPendingDate(todayISO());
-    setPendingNotes('');
+    setPendingDate(mostRecent ? mostRecent.date : todayISO());
+    setPendingNotes(mostRecent ? (mostRecent.notes || '') : '');
   };
 
   // Uploads a base64 data URL photo to Supabase Storage, returns the public URL
