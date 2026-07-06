@@ -1,4 +1,4 @@
-<!-- Pew Challenge v17 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
+<!-- Pew Challenge v18 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1137,6 +1137,8 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
   const [showCamera, setShowCamera] = useState(false);
   const [showBragCard, setShowBragCard] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
+  const [galleryTab, setGalleryTab] = useState('checks');
+  const [lightboxPal, setLightboxPal] = useState(null);
   const [toast, setToast] = useState(null);
 
   // Pew Pals
@@ -1553,15 +1555,28 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
           <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.navy, letterSpacing: 0.3 }}>
             PEW PALS
           </div>
-          <button
-            onClick={() => setShowPalCapture(true)}
-            style={{
-              background: COLORS.olive, color: COLORS.cream, border: 'none',
-              borderRadius: 999, padding: '6px 14px', fontSize: 12, fontWeight: 700,
-            }}
-          >
-            + New Pal
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {pewPals.length > 0 && (
+              <button
+                onClick={() => { setGalleryTab('pals'); setShowGallery(true); }}
+                style={{
+                  background: 'transparent', color: COLORS.olive, border: `1px solid ${COLORS.olive}`,
+                  borderRadius: 999, padding: '6px 12px', fontSize: 12, fontWeight: 700,
+                }}
+              >
+                View All
+              </button>
+            )}
+            <button
+              onClick={() => setShowPalCapture(true)}
+              style={{
+                background: COLORS.olive, color: COLORS.cream, border: 'none',
+                borderRadius: 999, padding: '6px 14px', fontSize: 12, fontWeight: 700,
+              }}
+            >
+              + New Pal
+            </button>
+          </div>
         </div>
         {pewPals.length === 0 ? (
           <div style={{ fontSize: 12.5, color: '#9AA5A8' }}>
@@ -1570,7 +1585,11 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
         ) : (
           <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
             {pewPals.map((pal) => (
-              <div key={pal.id} style={{ flexShrink: 0, width: 84, textAlign: 'center' }}>
+              <div
+                key={pal.id}
+                onClick={() => setLightboxPal(pal)}
+                style={{ flexShrink: 0, width: 84, textAlign: 'center', cursor: 'pointer' }}
+              >
                 <img
                   src={pal.photo_url}
                   alt={pal.pal_name}
@@ -1604,7 +1623,7 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
           Generate Brag Card →
         </button>
         <button
-          onClick={() => setShowGallery(true)}
+          onClick={() => { setGalleryTab('checks'); setShowGallery(true); }}
           style={{
             width: '100%', marginTop: 10, padding: '15px 0', borderRadius: 14,
             border: `1px solid ${COLORS.navy}30`, background: 'transparent',
@@ -1640,15 +1659,45 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
       )}
 
       {showGallery && (
-        <Gallery log={log} pewPals={pewPals} onClose={() => setShowGallery(false)} />
+        <Gallery
+          key={`${pewPals.length}-${galleryTab}`}
+          log={log}
+          pewPals={pewPals}
+          initialTab={galleryTab}
+          onClose={() => setShowGallery(false)}
+        />
+      )}
+
+      {lightboxPal && (
+        <div
+          onClick={() => setLightboxPal(null)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)',
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            justifyContent: 'center', zIndex: 60, padding: 20,
+          }}
+        >
+          <img
+            src={lightboxPal.photo_url}
+            alt={lightboxPal.pal_name}
+            style={{ width: '100%', maxHeight: '70vh', objectFit: 'contain', borderRadius: 16 }}
+          />
+          <div style={{ color: '#fff', marginTop: 14, fontSize: 18, fontWeight: 700 }}>
+            {lightboxPal.pal_name}
+          </div>
+          <div style={{ color: COLORS.camel, fontSize: 13, marginTop: 4 }}>
+            Met {fmtDate(lightboxPal.met_on)}
+          </div>
+          <div style={{ color: '#888', fontSize: 12, marginTop: 16 }}>Tap anywhere to close</div>
+        </div>
       )}
     </div>
   );
 }
 
 // ---- Photo Gallery modal ----
-function Gallery({ log, pewPals, onClose }) {
-  const [tab, setTab] = useState('checks'); // 'checks' | 'pals'
+function Gallery({ log, pewPals, initialTab, onClose }) {
+  const [tab, setTab] = useState(initialTab || 'checks'); // 'checks' | 'pals'
   const [selected, setSelected] = useState(null);
   const withPhotos = [...log].filter((e) => e.photo).reverse();
 
