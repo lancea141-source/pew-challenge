@@ -1,4 +1,4 @@
-<!-- Pew Challenge v16 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
+<!-- Pew Challenge v17 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1475,19 +1475,19 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
                     onClick={startChurchCheck}
                     style={{
                       flex: 1, padding: '12px 0', borderRadius: 12, border: 'none',
-                      background: COLORS.terracotta, color: COLORS.cream, fontWeight: 700, fontSize: 14,
+                      background: COLORS.terracotta, color: COLORS.cream, fontWeight: 700, fontSize: 13,
                     }}
                   >
-                    📸 Church Check
+                    📸 {priorEntries.length ? 'New Check' : 'Church Check'}
                   </button>
                   <button
                     onClick={triggerFileUpload}
                     style={{
                       flex: 1, padding: '12px 0', borderRadius: 12, border: `1px solid ${COLORS.terracotta}`,
-                      background: 'transparent', color: COLORS.terracotta, fontWeight: 700, fontSize: 14,
+                      background: 'transparent', color: COLORS.terracotta, fontWeight: 700, fontSize: 13,
                     }}
                   >
-                    🖼️ Upload photo
+                    🖼️ {priorEntries.length ? 'Add Photo' : 'Upload'}
                   </button>
                 </div>
                 <input
@@ -1497,16 +1497,18 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
                   onChange={handleFileChosen}
                   style={{ display: 'none' }}
                 />
-                <button
-                  onClick={logPewNoPhoto}
-                  style={{
-                    width: '100%', marginTop: 10, padding: '12px 0', borderRadius: 12,
-                    border: `1px solid ${COLORS.navy}30`, background: 'transparent',
-                    color: COLORS.navy, fontWeight: 600, fontSize: 14,
-                  }}
-                >
-                  Log without photo
-                </button>
+                {!priorEntries.length && (
+                  <button
+                    onClick={logPewNoPhoto}
+                    style={{
+                      width: '100%', marginTop: 10, padding: '12px 0', borderRadius: 12,
+                      border: `1px solid ${COLORS.navy}30`, background: 'transparent',
+                      color: COLORS.navy, fontWeight: 600, fontSize: 14,
+                    }}
+                  >
+                    Log without photo
+                  </button>
+                )}
                 <button
                   onClick={() => setPendingPew(null)}
                   style={{ width: '100%', marginTop: 8, padding: '8px 0', background: 'none', border: 'none', color: '#A09484', fontSize: 12.5 }}
@@ -1638,76 +1640,141 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
       )}
 
       {showGallery && (
-        <Gallery log={log} onClose={() => setShowGallery(false)} />
+        <Gallery log={log} pewPals={pewPals} onClose={() => setShowGallery(false)} />
       )}
     </div>
   );
 }
 
 // ---- Photo Gallery modal ----
-function Gallery({ log, onClose }) {
+function Gallery({ log, pewPals, onClose }) {
+  const [tab, setTab] = useState('checks'); // 'checks' | 'pals'
   const [selected, setSelected] = useState(null);
   const withPhotos = [...log].filter((e) => e.photo).reverse();
+
+  const handleClose = () => {
+    if (selected) { setSelected(null); return; }
+    onClose();
+  };
 
   return (
     <div style={{
       position: 'fixed', inset: 0, background: COLORS.navy, zIndex: 50,
       display: 'flex', flexDirection: 'column', overflow: 'hidden',
     }}>
+      {/* Header */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '18px 20px 12px',
+        padding: '18px 20px 0',
       }}>
         <div style={{ color: COLORS.cream, fontFamily: 'Georgia, serif', fontSize: 20, fontWeight: 700 }}>
-          Church Checks
+          {selected ? (tab === 'checks' ? 'Church Check' : 'Pew Pal') : 'Gallery'}
         </div>
-        <button onClick={onClose} style={{ background: 'none', border: 'none', color: COLORS.camel, fontSize: 24, lineHeight: 1 }}>✕</button>
+        <button
+          onClick={handleClose}
+          style={{ background: 'none', border: 'none', color: COLORS.camel, fontSize: 24, lineHeight: 1 }}
+        >
+          {selected ? '←' : '✕'}
+        </button>
       </div>
 
+      {/* Tabs — only show when not in detail view */}
+      {!selected && (
+        <div style={{ display: 'flex', gap: 4, padding: '12px 20px 0' }}>
+          {[{ k: 'checks', label: '📸 Church Checks' }, { k: 'pals', label: '🤝 Pew Pals' }].map((t) => (
+            <button
+              key={t.k}
+              onClick={() => setTab(t.k)}
+              style={{
+                flex: 1, padding: '8px 0', borderRadius: 999, border: 'none',
+                background: tab === t.k ? COLORS.terracotta : 'rgba(244,237,228,0.1)',
+                color: COLORS.cream, fontWeight: 600, fontSize: 13,
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Detail view */}
       {selected ? (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <img
-            src={selected.photo}
+            src={selected.photo || selected.photo_url}
             alt=""
-            style={{ width: '100%', maxHeight: '70vh', objectFit: 'contain', borderRadius: 16 }}
+            style={{ width: '100%', maxHeight: '65vh', objectFit: 'contain', borderRadius: 16 }}
           />
-          <div style={{ color: COLORS.cream, marginTop: 12, fontSize: 14, fontWeight: 600 }}>
-            {selected.section[0].toUpperCase() + selected.section.slice(1)} · Row {selected.row} · {fmtDate(selected.date)}
+          <div style={{ color: COLORS.cream, marginTop: 12, fontSize: 15, fontWeight: 700, textAlign: 'center' }}>
+            {tab === 'checks'
+              ? `${selected.section[0].toUpperCase() + selected.section.slice(1)} · Row ${selected.row} · ${fmtDate(selected.date)}`
+              : selected.pal_name}
           </div>
-          {selected.notes ? (
+          {tab === 'checks' && selected.notes ? (
             <div style={{ color: COLORS.camel, marginTop: 6, fontSize: 13, textAlign: 'center', maxWidth: 320 }}>
               {selected.notes}
             </div>
           ) : null}
-          <button
-            onClick={() => setSelected(null)}
-            style={{ marginTop: 20, padding: '10px 28px', borderRadius: 999, border: `1px solid ${COLORS.cream}`, background: 'transparent', color: COLORS.cream, fontSize: 14 }}
-          >
-            ← Back to grid
-          </button>
+          {tab === 'pals' && selected.met_on ? (
+            <div style={{ color: COLORS.camel, marginTop: 4, fontSize: 13 }}>
+              Met {fmtDate(selected.met_on)}
+            </div>
+          ) : null}
         </div>
       ) : (
-        <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 24px' }}>
-          {withPhotos.length === 0 ? (
-            <div style={{ color: COLORS.camel, textAlign: 'center', marginTop: 40, fontSize: 14 }}>
-              No Church Checks yet — snap one from the map!
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4 }}>
-              {withPhotos.map((entry) => (
-                <div
-                  key={entry.id}
-                  onClick={() => setSelected(entry)}
-                  style={{ aspectRatio: '1', overflow: 'hidden', borderRadius: 8, cursor: 'pointer' }}
-                >
-                  <img
-                    src={entry.photo}
-                    alt=""
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
-                </div>
-              ))}
-            </div>
+        /* Grid view */
+        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px 24px' }}>
+          {tab === 'checks' && (
+            withPhotos.length === 0 ? (
+              <div style={{ color: COLORS.camel, textAlign: 'center', marginTop: 40, fontSize: 14 }}>
+                No Church Checks yet — snap one from the map!
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4 }}>
+                {withPhotos.map((entry) => (
+                  <div
+                    key={entry.id}
+                    onClick={() => setSelected(entry)}
+                    style={{ aspectRatio: '1', overflow: 'hidden', borderRadius: 8, cursor: 'pointer', position: 'relative' }}
+                  >
+                    <img src={entry.photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <div style={{
+                      position: 'absolute', bottom: 0, left: 0, right: 0,
+                      background: 'rgba(0,0,0,0.5)', color: '#fff',
+                      fontSize: 9, padding: '3px 4px', textAlign: 'center',
+                    }}>
+                      {entry.section[0].toUpperCase()}{entry.row} · {entry.date?.slice(5).replace('-','/')}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
+          )}
+          {tab === 'pals' && (
+            pewPals.length === 0 ? (
+              <div style={{ color: COLORS.camel, textAlign: 'center', marginTop: 40, fontSize: 14 }}>
+                No Pew Pals yet — sit by someone new!
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4 }}>
+                {pewPals.map((pal) => (
+                  <div
+                    key={pal.id}
+                    onClick={() => setSelected(pal)}
+                    style={{ aspectRatio: '1', overflow: 'hidden', borderRadius: 8, cursor: 'pointer', position: 'relative' }}
+                  >
+                    <img src={pal.photo_url} alt={pal.pal_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <div style={{
+                      position: 'absolute', bottom: 0, left: 0, right: 0,
+                      background: 'rgba(0,0,0,0.5)', color: '#fff',
+                      fontSize: 9, padding: '3px 4px', textAlign: 'center',
+                    }}>
+                      {pal.pal_name}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
           )}
         </div>
       )}
