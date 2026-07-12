@@ -1,4 +1,4 @@
-<!-- Pew Challenge v21 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
+<!-- Pew Challenge v22 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -981,17 +981,27 @@ function AuthScreen({ onAuthed }) {
               Sign Up
             </button>
             <button
-              onClick={() => onAuthed('guest')}
+              onClick={() => onAuthed('lance')}
               style={{
                 padding: '15px 0', borderRadius: 14,
                 border: `1px solid ${COLORS.navy}30`, background: 'transparent',
                 color: COLORS.navy, fontWeight: 700, fontSize: 16,
               }}
             >
-              🪑 See How It Works
+              👀 See Lance's Progress
+            </button>
+            <button
+              onClick={() => onAuthed('guest')}
+              style={{
+                padding: '15px 0', borderRadius: 14,
+                border: `1px solid ${COLORS.camel}`, background: 'transparent',
+                color: COLORS.navy, fontWeight: 600, fontSize: 15,
+              }}
+            >
+              🪑 Try as Guest
             </button>
             <p style={{ textAlign: 'center', fontSize: 11.5, color: '#9AA5A8', margin: '4px 0 0' }}>
-              Demo mode — explore a real ward's pew challenge
+              Guest — explore the app empty · Lance's — see real data
             </p>
           </div>
         ) : (
@@ -1186,7 +1196,7 @@ const inputStyle = {
   fontSize: 15, fontFamily: 'system-ui', background: '#fff', color: '#2F3E46',
 };
 
-function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
+function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog, seedPals }) {
   const [log, setLog] = useState(seedLog || []);
   const [loadingLog, setLoadingLog] = useState(!isGuest);
   const [pendingPew, setPendingPew] = useState(null);
@@ -1200,9 +1210,7 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
   const [lightboxEntry, setLightboxEntry] = useState(null);
   const [showShareView, setShowShareView] = useState(false);
   const [toast, setToast] = useState(null);
-
-  // Pew Pals
-  const [pewPals, setPewPals] = useState([]);
+  const [pewPals, setPewPals] = useState(seedPals || []);
   const [showPalCapture, setShowPalCapture] = useState(false);
 
   const loadPewPals = useCallback(async () => {
@@ -1435,7 +1443,7 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
             onClick={onSignOut}
             style={{ background: 'none', border: 'none', color: COLORS.camel, fontSize: 11, opacity: 0.7 }}
           >
-            Sign out
+            {isGuest ? '← Log In / Sign Up' : 'Sign out'}
           </button>
         </div>
         <h1 style={{
@@ -2137,22 +2145,9 @@ function LegendDot({ color, label }) {
 }
 
 // ---- Guest mode seed data ----
-const GUEST_WARD = {
-  id: 'guest', name: 'Demo Ward (TM1)', join_code: 'GUEST',
-  left_rows: 10, center_rows: 13, right_rows: 12,
-  blocked_pews: ['right-11', 'right-12'],
-};
-const GUEST_USER = { id: 'guest' };
-const GUEST_PROFILE = { id: 'guest', display_name: 'Guest', ward_id: 'guest' };
-const GUEST_LOG = [
-  { id: 'g1', section: 'center', row: 3, date: '2026-05-03', photo: null, notes: '' },
-  { id: 'g2', section: 'center', row: 4, date: '2026-05-10', photo: null, notes: '' },
-  { id: 'g3', section: 'left',   row: 3, date: '2026-05-31', photo: null, notes: '' },
-  { id: 'g4', section: 'center', row: 5, date: '2026-06-07', photo: null, notes: '' },
-  { id: 'g5', section: 'right',  row: 3, date: '2026-06-14', photo: null, notes: '' },
-  { id: 'g6', section: 'center', row: 2, date: '2026-06-21', photo: null, notes: '' },
-  { id: 'g7', section: 'left',   row: 5, date: '2026-06-28', photo: null, notes: '' },
-];
+// ---- Lance's real account IDs for demo mode ----
+const LANCE_USER_ID = '1bf7c5ff-674b-4b5f-82f3-9047f526c747';
+const LANCE_WARD_ID = 'e027cde4-4c7e-45ff-a6d0-0bb68480329d';
 
 // ---- Top-level app: handles auth session + ward loading ----
 function App() {
@@ -2161,6 +2156,44 @@ function App() {
   const [ward, setWard] = useState(null);
   const [loadErr, setLoadErr] = useState(null);
   const [guestMode, setGuestMode] = useState(false);
+  const [lanceMode, setLanceMode] = useState(false);
+  const [lanceLog, setLanceLog] = useState([]);
+  const [lancePals, setLancePals] = useState([]);
+  const [lanceLoading, setLanceLoading] = useState(false);
+
+  const LANCE_WARD_OBJ = {
+    id: LANCE_WARD_ID, name: 'TM1', join_code: 'TM1-2026',
+    left_rows: 10, center_rows: 13, right_rows: 12,
+    blocked_pews: ['right-11', 'right-12'],
+  };
+  const LANCE_PROFILE_OBJ = { id: LANCE_USER_ID, display_name: 'Lance', ward_id: LANCE_WARD_ID };
+
+  const EMPTY_WARD = {
+    id: 'guest', name: 'Demo Ward', join_code: 'GUEST',
+    left_rows: 10, center_rows: 13, right_rows: 12,
+    blocked_pews: ['right-11', 'right-12'],
+  };
+  const GUEST_PROFILE_OBJ = { id: 'guest', display_name: 'Guest', ward_id: 'guest' };
+
+  const loadLanceData = useCallback(async () => {
+    setLanceLoading(true);
+    const [{ data: logs }, { data: pals }] = await Promise.all([
+      sb.from('pew_logs')
+        .select('id, section, row_num, sat_on, photo_url, notes')
+        .eq('user_id', LANCE_USER_ID).eq('ward_id', LANCE_WARD_ID)
+        .order('sat_on', { ascending: true }),
+      sb.from('pew_pals')
+        .select('id, pal_name, photo_url, met_on')
+        .eq('user_id', LANCE_USER_ID).eq('ward_id', LANCE_WARD_ID)
+        .order('met_on', { ascending: false }),
+    ]);
+    if (logs) setLanceLog(logs.map((r) => ({
+      id: r.id, section: r.section, row: r.row_num,
+      date: r.sat_on, photo: r.photo_url, notes: r.notes || '',
+    })));
+    if (pals) setLancePals(pals);
+    setLanceLoading(false);
+  }, []);
 
   const loadProfileAndWard = useCallback(async (userId) => {
     const { data: prof, error: profErr } = await sb
@@ -2190,20 +2223,37 @@ function App() {
   }, [loadProfileAndWard]);
 
   const handleAuthed = (mode) => {
-    if (mode === 'guest') setGuestMode(true);
-    // real auth handled by onAuthStateChange listener
+    if (mode === 'lance') { setLanceMode(true); loadLanceData(); }
+    if (mode === 'guest') { setGuestMode(true); }
   };
 
   const handleSignOut = async () => {
+    if (lanceMode) { setLanceMode(false); return; }
     if (guestMode) { setGuestMode(false); return; }
     await sb.auth.signOut();
   };
 
+  if (lanceMode) {
+    if (lanceLoading) {
+      return (
+        <div style={{ minHeight: '100vh', background: COLORS.cream, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui', color: COLORS.navy }}>
+          Loading Lance's progress…
+        </div>
+      );
+    }
+    return (
+      <PewChallengeApp
+        user={{ id: LANCE_USER_ID }} profile={LANCE_PROFILE_OBJ} ward={LANCE_WARD_OBJ}
+        onSignOut={handleSignOut} isGuest={true} seedLog={lanceLog} seedPals={lancePals}
+      />
+    );
+  }
+
   if (guestMode) {
     return (
       <PewChallengeApp
-        user={GUEST_USER} profile={GUEST_PROFILE} ward={GUEST_WARD}
-        onSignOut={handleSignOut} isGuest={true} seedLog={GUEST_LOG}
+        user={{ id: 'guest' }} profile={GUEST_PROFILE_OBJ} ward={EMPTY_WARD}
+        onSignOut={handleSignOut} isGuest={true} seedLog={[]} seedPals={[]}
       />
     );
   }
