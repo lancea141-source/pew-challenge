@@ -1,4 +1,4 @@
-<!-- Pew Challenge v18 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
+<!-- Pew Challenge v19 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -618,7 +618,7 @@ function BragCard({ log, totalPews, onClose }) {
 }
 
 // ---- Pew floor plan ----
-function ChapelMap({ log, selected, onSelectPew, ward }) {
+function ChapelMap({ log, selected, onSelectPew, ward, onPhotoClick }) {
   // group ALL entries by pew, sorted oldest -> newest
   const entriesByPew = {};
   log.forEach((entry) => {
@@ -718,9 +718,10 @@ function ChapelMap({ log, selected, onSelectPew, ward }) {
                         <img
                           src={e.photo}
                           alt=""
+                          onClick={(ev) => { ev.stopPropagation(); onPhotoClick && onPhotoClick(e); }}
                           style={{
                             width: 12, height: 12, borderRadius: 2,
-                            objectFit: 'cover', flexShrink: 0,
+                            objectFit: 'cover', flexShrink: 0, cursor: 'pointer',
                           }}
                         />
                       )}
@@ -761,14 +762,15 @@ function ChapelMap({ log, selected, onSelectPew, ward }) {
 
 // ---- Auth + ward join/create screen ----
 function AuthScreen({ onAuthed }) {
-  const [mode, setMode] = useState('login'); // 'login' | 'signup'
-  const [signupMode, setSignupMode] = useState('join'); // 'join' | 'create' — driven by dropdown selection
+  const [screen, setScreen] = useState('landing'); // 'landing' | 'login' | 'signup'
+  const [signupMode, setSignupMode] = useState('join');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [joinCode, setJoinCode] = useState('');
   const [wardList, setWardList] = useState([]);
   const [wardListLoading, setWardListLoading] = useState(true);
+  const mode = screen === 'login' ? 'login' : 'signup';
 
   // new-ward builder state
   const [wardName, setWardName] = useState('');
@@ -924,9 +926,9 @@ function AuthScreen({ onAuthed }) {
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
     }}>
       <div style={{ width: '100%', maxWidth: 380 }}>
-        <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <img src={LOGO_URL} alt="" style={{ width: 44, height: 44, borderRadius: 10, marginBottom: 10 }} />
-          <h1 style={{ fontFamily: 'Georgia, serif', fontSize: 28, color: COLORS.navy, margin: '0 0 4px' }}>
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+          <img src={LOGO_URL} alt="" style={{ width: 52, height: 52, borderRadius: 12, marginBottom: 12 }} />
+          <h1 style={{ fontFamily: 'Georgia, serif', fontSize: 30, color: COLORS.navy, margin: '0 0 4px' }}>
             The Pew Challenge
           </h1>
           <p style={{ color: COLORS.olive, fontSize: 13.5, margin: 0 }}>
@@ -934,25 +936,69 @@ function AuthScreen({ onAuthed }) {
           </p>
         </div>
 
-        <div style={{
-          display: 'flex', background: '#fff', borderRadius: 999, padding: 4,
-          marginBottom: 16, border: `1px solid ${COLORS.camel}40`,
-        }}>
-          {['login', 'signup'].map((m) => (
+        {screen === 'landing' ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <button
-              key={m}
-              onClick={() => { setMode(m); setError(null); }}
+              onClick={() => setScreen('login')}
               style={{
-                flex: 1, padding: '10px 0', borderRadius: 999, border: 'none',
-                background: mode === m ? COLORS.navy : 'transparent',
-                color: mode === m ? COLORS.cream : COLORS.navy,
-                fontWeight: 600, fontSize: 14,
+                padding: '15px 0', borderRadius: 14, border: 'none',
+                background: COLORS.navy, color: COLORS.cream, fontWeight: 700, fontSize: 16,
               }}
             >
-              {m === 'login' ? 'Log In' : 'Sign Up'}
+              Log In
             </button>
-          ))}
-        </div>
+            <button
+              onClick={() => setScreen('signup')}
+              style={{
+                padding: '15px 0', borderRadius: 14, border: 'none',
+                background: COLORS.terracotta, color: COLORS.cream, fontWeight: 700, fontSize: 16,
+              }}
+            >
+              Sign Up
+            </button>
+            <button
+              onClick={() => onAuthed('guest')}
+              style={{
+                padding: '15px 0', borderRadius: 14,
+                border: `1px solid ${COLORS.navy}30`, background: 'transparent',
+                color: COLORS.navy, fontWeight: 700, fontSize: 16,
+              }}
+            >
+              🪑 See How It Works
+            </button>
+            <p style={{ textAlign: 'center', fontSize: 11.5, color: '#9AA5A8', margin: '4px 0 0' }}>
+              Demo mode — explore a real ward's pew challenge
+            </p>
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+              <button
+                onClick={() => { setScreen('landing'); setError(null); }}
+                style={{ background: 'none', border: 'none', color: COLORS.navy, fontSize: 22, padding: '0 10px 0 0', lineHeight: 1 }}
+              >
+                ←
+              </button>
+              <div style={{
+                flex: 1, display: 'flex', background: '#fff', borderRadius: 999, padding: 4,
+                border: `1px solid ${COLORS.camel}40`,
+              }}>
+                {['login', 'signup'].map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => { setScreen(m); setError(null); }}
+                    style={{
+                      flex: 1, padding: '10px 0', borderRadius: 999, border: 'none',
+                      background: screen === m ? COLORS.navy : 'transparent',
+                      color: screen === m ? COLORS.cream : COLORS.navy,
+                      fontWeight: 600, fontSize: 14,
+                    }}
+                  >
+                    {m === 'login' ? 'Log In' : 'Sign Up'}
+                  </button>
+                ))}
+              </div>
+            </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {mode === 'signup' && (
@@ -1103,21 +1149,9 @@ function AuthScreen({ onAuthed }) {
             <span style={{ fontSize: 12, color: '#9AA5A8' }}>or</span>
             <div style={{ flex: 1, height: 1, background: '#D8CBB8' }} />
           </div>
-
-          <button
-            onClick={() => onAuthed('guest')}
-            style={{
-              padding: '13px 0', borderRadius: 12, border: `1px solid ${COLORS.navy}30`,
-              background: 'transparent', color: COLORS.navy, fontWeight: 600,
-              fontSize: 15,
-            }}
-          >
-            👀 Try as Guest
-          </button>
-          <div style={{ fontSize: 11, color: '#9AA5A8', textAlign: 'center', marginTop: -4 }}>
-            Demo mode — no account needed
-          </div>
         </div>
+        </>
+        )}
       </div>
     </div>
   );
@@ -1139,6 +1173,8 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
   const [showGallery, setShowGallery] = useState(false);
   const [galleryTab, setGalleryTab] = useState('checks');
   const [lightboxPal, setLightboxPal] = useState(null);
+  const [lightboxEntry, setLightboxEntry] = useState(null);
+  const [showShareView, setShowShareView] = useState(false);
   const [toast, setToast] = useState(null);
 
   // Pew Pals
@@ -1420,7 +1456,7 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
 
       {/* Map */}
       <div style={{ padding: '20px 16px 0' }}>
-        <ChapelMap log={log} selected={pendingPew?.key} onSelectPew={handleSelectPew} ward={ward} />
+        <ChapelMap log={log} selected={pendingPew?.key} onSelectPew={handleSelectPew} ward={ward} onPhotoClick={setLightboxEntry} />
       </div>
 
       {/* Legend */}
@@ -1531,7 +1567,11 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
           </div>
           <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
             {recentWithPhotos.map((entry) => (
-              <div key={entry.id} style={{ flexShrink: 0, width: 84 }}>
+              <div
+                key={entry.id}
+                onClick={() => setLightboxEntry(entry)}
+                style={{ flexShrink: 0, width: 84, cursor: 'pointer' }}
+              >
                 <img
                   src={entry.photo}
                   alt=""
@@ -1611,7 +1651,7 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
       </div>
 
       {/* Brag card CTA */}
-      <div style={{ padding: '24px 16px 0' }}>
+      <div style={{ padding: '24px 16px 40px' }}>
         <button
           onClick={() => setShowBragCard(true)}
           style={{
@@ -1620,7 +1660,7 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
             letterSpacing: 0.3,
           }}
         >
-          Generate Brag Card →
+          🏆 Generate Brag Card
         </button>
         <button
           onClick={() => { setGalleryTab('checks'); setShowGallery(true); }}
@@ -1631,6 +1671,16 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
           }}
         >
           📷 Photo Gallery
+        </button>
+        <button
+          onClick={() => setShowShareView(true)}
+          style={{
+            width: '100%', marginTop: 10, padding: '15px 0', borderRadius: 14,
+            border: `1px solid ${COLORS.terracotta}`, background: 'transparent',
+            color: COLORS.terracotta, fontWeight: 700, fontSize: 15, letterSpacing: 0.3,
+          }}
+        >
+          👁 Share My Progress
         </button>
       </div>
 
@@ -1656,6 +1706,14 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
 
       {showPalCapture && (
         <PalCapture onSave={savePewPal} onCancel={() => setShowPalCapture(false)} />
+      )}
+
+      {showShareView && (
+        <ShareView
+          log={log} pewPals={pewPals} ward={ward}
+          profile={profile} totalPews={totalPews} uniquePews={uniquePews} pct={pct}
+          onClose={() => setShowShareView(false)}
+        />
       )}
 
       {showGallery && (
@@ -1689,6 +1747,200 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
             Met {fmtDate(lightboxPal.met_on)}
           </div>
           <div style={{ color: '#888', fontSize: 12, marginTop: 16 }}>Tap anywhere to close</div>
+        </div>
+      )}
+
+      {lightboxEntry && (
+        <div
+          onClick={() => setLightboxEntry(null)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)',
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            justifyContent: 'center', zIndex: 60, padding: 20,
+          }}
+        >
+          <img
+            src={lightboxEntry.photo}
+            alt=""
+            style={{ width: '100%', maxHeight: '70vh', objectFit: 'contain', borderRadius: 16 }}
+          />
+          <div style={{ color: '#fff', marginTop: 14, fontSize: 16, fontWeight: 700 }}>
+            {lightboxEntry.section[0].toUpperCase() + lightboxEntry.section.slice(1)} · Row {lightboxEntry.row}
+          </div>
+          <div style={{ color: COLORS.camel, fontSize: 13, marginTop: 4 }}>
+            {fmtDate(lightboxEntry.date)}
+          </div>
+          {lightboxEntry.notes ? (
+            <div style={{ color: '#aaa', fontSize: 13, marginTop: 6, textAlign: 'center', maxWidth: 300 }}>
+              {lightboxEntry.notes}
+            </div>
+          ) : null}
+          <div style={{ color: '#888', fontSize: 12, marginTop: 16 }}>Tap anywhere to close</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Share View — read-only public view of a user's progress ----
+function ShareView({ log, pewPals, ward, profile, totalPews, uniquePews, pct, onClose }) {
+  const [lightbox, setLightbox] = useState(null);
+  const withPhotos = [...log].filter((e) => e.photo).reverse();
+  const maxRows = Math.max(ward.left_rows, ward.center_rows, ward.right_rows);
+  const rowsDesc = Array.from({ length: maxRows }, (_, i) => maxRows - i);
+  const entriesByPew = {};
+  log.forEach((e) => {
+    const key = pewKey(e.section, e.row);
+    if (!entriesByPew[key]) entriesByPew[key] = [];
+    entriesByPew[key].push(e);
+  });
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: COLORS.cream, zIndex: 50,
+      overflowY: 'auto', fontFamily: 'system-ui, -apple-system, sans-serif',
+    }}>
+      {/* Header */}
+      <div style={{
+        background: COLORS.navy, padding: '22px 20px 24px',
+        borderBottomLeftRadius: 24, borderBottomRightRadius: 24,
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <div style={{ color: COLORS.camel, fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>
+              {ward.name} · The Pew Challenge
+            </div>
+            <h1 style={{ color: COLORS.cream, fontFamily: 'Georgia, serif', fontSize: 26, margin: '0 0 4px' }}>
+              {profile?.display_name || 'Lance'}'s Progress
+            </h1>
+            <p style={{ color: COLORS.camel, fontSize: 13, margin: 0, opacity: 0.85 }}>
+              Read-only view · Start your own challenge below
+            </p>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: COLORS.camel, fontSize: 22 }}>✕</button>
+        </div>
+        <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
+          <div style={{ flex: 1, background: 'rgba(244,237,228,0.08)', borderRadius: 12, padding: '10px 14px' }}>
+            <div style={{ color: COLORS.terracotta, fontSize: 24, fontWeight: 800, fontFamily: 'Georgia, serif' }}>
+              {uniquePews}<span style={{ fontSize: 14, color: COLORS.camel }}>/{totalPews}</span>
+            </div>
+            <div style={{ color: COLORS.cream, fontSize: 11, opacity: 0.7 }}>pews sat in</div>
+          </div>
+          <div style={{ flex: 1, background: 'rgba(244,237,228,0.08)', borderRadius: 12, padding: '10px 14px' }}>
+            <div style={{ color: COLORS.olive, fontSize: 24, fontWeight: 800, fontFamily: 'Georgia, serif' }}>{log.length}</div>
+            <div style={{ color: COLORS.cream, fontSize: 11, opacity: 0.7 }}>Sundays logged</div>
+          </div>
+          <div style={{ flex: 1, background: 'rgba(244,237,228,0.08)', borderRadius: 12, padding: '10px 14px' }}>
+            <div style={{ color: COLORS.cream, fontSize: 24, fontWeight: 800, fontFamily: 'Georgia, serif' }}>{pct}%</div>
+            <div style={{ color: COLORS.cream, fontSize: 11, opacity: 0.7 }}>chapel covered</div>
+          </div>
+        </div>
+        <div style={{ marginTop: 12, height: 8, background: 'rgba(244,237,228,0.12)', borderRadius: 999 }}>
+          <div style={{ height: '100%', width: `${pct}%`, background: COLORS.terracotta, borderRadius: 999 }} />
+        </div>
+      </div>
+
+      {/* Chapel map read-only */}
+      <div style={{ padding: '16px 16px 0' }}>
+        <div style={{ background: COLORS.navy, borderRadius: 18, padding: '16px 12px 20px' }}>
+          <div style={{ textAlign: 'center', color: COLORS.camel, fontSize: 10, fontWeight: 600, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 10, opacity: 0.7 }}>
+            ✦ pulpit / stand ✦
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            {rowsDesc.map((row) => (
+              <div key={row} style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                <div style={{ width: 14, fontSize: 9, color: COLORS.camel, opacity: 0.5, textAlign: 'right' }}>{row}</div>
+                {SECTIONS.map((section) => {
+                  const exists = pewExists(ward, section, row);
+                  const key = pewKey(section, row);
+                  const blocked = isBlocked(ward, section, row);
+                  const entries = entriesByPew[key] || [];
+                  if (!exists) return <div key={section} style={{ flex: 1, height: 20 }} />;
+                  const hasPhoto = entries.some((e) => e.photo);
+                  return (
+                    <div
+                      key={section}
+                      onClick={() => hasPhoto && setLightbox(entries.find((e) => e.photo))}
+                      style={{
+                        flex: 1, height: 20, borderRadius: 4,
+                        background: blocked ? COLORS.camel : entries.length ? COLORS.terracotta : 'rgba(244,237,228,0.08)',
+                        border: `1px solid ${blocked ? COLORS.camel : entries.length ? COLORS.terracotta : 'rgba(244,237,228,0.12)'}`,
+                        cursor: hasPhoto ? 'pointer' : 'default',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}
+                    >
+                      {hasPhoto && <span style={{ fontSize: 8 }}>📷</span>}
+                    </div>
+                  );
+                })}
+                <div style={{ width: 14 }} />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Recent photos */}
+      {withPhotos.length > 0 && (
+        <div style={{ padding: '16px 16px 0' }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.navy, marginBottom: 8, letterSpacing: 0.3 }}>CHURCH CHECKS</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4 }}>
+            {withPhotos.slice(0, 9).map((e) => (
+              <div key={e.id} onClick={() => setLightbox(e)} style={{ aspectRatio: '1', overflow: 'hidden', borderRadius: 10, cursor: 'pointer', position: 'relative' }}>
+                <img src={e.photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(0,0,0,0.45)', color: '#fff', fontSize: 9, padding: '3px 4px', textAlign: 'center' }}>
+                  {e.section[0].toUpperCase()}{e.row} · {e.date?.slice(5).replace('-','/')}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Pew Pals */}
+      {pewPals.length > 0 && (
+        <div style={{ padding: '16px 16px 0' }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.navy, marginBottom: 8, letterSpacing: 0.3 }}>PEW PALS</div>
+          <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
+            {pewPals.map((pal) => (
+              <div key={pal.id} style={{ flexShrink: 0, width: 80, textAlign: 'center' }}>
+                <img src={pal.photo_url} alt={pal.pal_name} style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 12, border: `2px solid ${COLORS.olive}` }} />
+                <div style={{ fontSize: 10, fontWeight: 600, color: COLORS.navy, marginTop: 3 }}>{pal.pal_name}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* CTA */}
+      <div style={{ padding: '24px 16px 40px' }}>
+        <div style={{ textAlign: 'center', fontSize: 13, color: '#9AA5A8', marginBottom: 12 }}>
+          Want to track your own pews?
+        </div>
+        <button
+          onClick={onClose}
+          style={{
+            width: '100%', padding: '15px 0', borderRadius: 14, border: 'none',
+            background: COLORS.terracotta, color: COLORS.cream, fontWeight: 700, fontSize: 15,
+          }}
+        >
+          Start Your Own Challenge →
+        </button>
+      </div>
+
+      {/* Lightbox */}
+      {lightbox && (
+        <div onClick={() => setLightbox(null)} style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          justifyContent: 'center', zIndex: 70, padding: 20,
+        }}>
+          <img src={lightbox.photo} alt="" style={{ width: '100%', maxHeight: '70vh', objectFit: 'contain', borderRadius: 16 }} />
+          <div style={{ color: '#fff', marginTop: 12, fontSize: 15, fontWeight: 700 }}>
+            {lightbox.section[0].toUpperCase() + lightbox.section.slice(1)} · Row {lightbox.row} · {fmtDate(lightbox.date)}
+          </div>
+          {lightbox.notes ? <div style={{ color: COLORS.camel, fontSize: 13, marginTop: 4 }}>{lightbox.notes}</div> : null}
+          <div style={{ color: '#888', fontSize: 12, marginTop: 14 }}>Tap to close</div>
         </div>
       )}
     </div>
