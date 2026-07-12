@@ -1,4 +1,4 @@
-<!-- Pew Challenge v22 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
+<!-- Pew Challenge v23 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -72,13 +72,34 @@ const APP_URL = 'https://lancea141-source.github.io/pew-challenge/';
 const shareApp = async (msg) => {
   const text = msg || 'I\'m doing the Pew Challenge — sit somewhere new every Sunday! 🪑';
   if (navigator.share) {
-    try {
-      await navigator.share({ title: 'The Pew Challenge', text, url: APP_URL });
-    } catch (e) { /* user cancelled */ }
+    try { await navigator.share({ title: 'The Pew Challenge', text, url: APP_URL }); }
+    catch (e) { /* user cancelled */ }
   } else {
     await navigator.clipboard.writeText(`${text}\n${APP_URL}`);
     alert('Link copied to clipboard!');
   }
+};
+
+const sharePhoto = async (url, caption) => {
+  if (navigator.share) {
+    try {
+      // Try sharing with the URL directly (works on most iOS/Android)
+      await navigator.share({ title: 'Pew Challenge', text: caption || 'My Pew Challenge Church Check 🪑', url });
+    } catch (e) { /* cancelled */ }
+  } else {
+    // Desktop fallback — open in new tab
+    window.open(url, '_blank');
+  }
+};
+
+const downloadPhoto = (url, filename) => {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || 'church-check.jpg';
+  a.target = '_blank';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 };
 
 
@@ -636,6 +657,154 @@ function BragCard({ log, totalPews, onClose }) {
         >
           🔗 Share
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ---- Guest chapel setup screen ----
+function GuestSetup({ onStart }) {
+  const [leftRows, setLeftRows] = useState(10);
+  const [centerRows, setCenterRows] = useState(13);
+  const [rightRows, setRightRows] = useState(12);
+  const [blockedSet, setBlockedSet] = useState(new Set(['right-11', 'right-12']));
+
+  const toggleBlocked = (key) => {
+    setBlockedSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  const maxRows = Math.max(leftRows, centerRows, rightRows, 1);
+  const rowsDesc = Array.from({ length: maxRows }, (_, i) => maxRows - i);
+  const sectionCounts = { left: leftRows, center: centerRows, right: rightRows };
+
+  const handleStart = () => {
+    onStart({
+      id: 'guest', name: 'My Chapel', join_code: 'GUEST',
+      left_rows: leftRows, center_rows: centerRows, right_rows: rightRows,
+      blocked_pews: Array.from(blockedSet),
+    });
+  };
+
+  return (
+    <div style={{
+      minHeight: '100vh', background: COLORS.cream, fontFamily: 'system-ui, -apple-system, sans-serif',
+      padding: 20, overflowY: 'auto',
+    }}>
+      <div style={{ maxWidth: 380, margin: '0 auto' }}>
+        <div style={{ textAlign: 'center', marginBottom: 24, paddingTop: 20 }}>
+          <img src={LOGO_URL} alt="" style={{ width: 44, height: 44, borderRadius: 10, marginBottom: 10 }} />
+          <h1 style={{ fontFamily: 'Georgia, serif', fontSize: 26, color: COLORS.navy, margin: '0 0 6px' }}>
+            Set Up Your Chapel
+          </h1>
+          <p style={{ color: '#7A8A8F', fontSize: 13.5, margin: 0 }}>
+            Configure your chapel layout to match the real thing
+          </p>
+        </div>
+
+        <div style={{
+          background: '#fff', border: `1px solid ${COLORS.camel}40`,
+          borderRadius: 16, padding: 18, marginBottom: 16,
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.navy, marginBottom: 14 }}>
+            Rows per section
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            {[
+              { label: 'Left', val: leftRows, set: setLeftRows },
+              { label: 'Center', val: centerRows, set: setCenterRows },
+              { label: 'Right', val: rightRows, set: setRightRows },
+            ].map((f) => (
+              <div key={f.label} style={{ flex: 1 }}>
+                <div style={{ fontSize: 11, color: COLORS.olive, marginBottom: 6, textAlign: 'center', fontWeight: 600 }}>
+                  {f.label}
+                </div>
+                <input
+                  type="number" min="0" max="25"
+                  value={f.val}
+                  onChange={(e) => f.set(Math.max(0, parseInt(e.target.value || '0', 10)))}
+                  style={{
+                    ...inputStyle, padding: '10px 6px', textAlign: 'center',
+                    fontSize: 18, fontWeight: 700, width: '100%',
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{
+          background: '#fff', border: `1px solid ${COLORS.camel}40`,
+          borderRadius: 16, padding: 18, marginBottom: 20,
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.navy, marginBottom: 6 }}>
+            Tap to block pews
+          </div>
+          <div style={{ fontSize: 12, color: '#9AA5A8', marginBottom: 12 }}>
+            Mark the sacrament table or any non-seating areas
+          </div>
+          <div style={{ background: COLORS.navy, borderRadius: 12, padding: '12px 8px' }}>
+            <div style={{ textAlign: 'center', color: COLORS.camel, fontSize: 9, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8, opacity: 0.7 }}>
+              ✦ pulpit ✦
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {rowsDesc.map((row) => (
+                <div key={row} style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+                  <div style={{ width: 14, fontSize: 9, color: COLORS.camel, opacity: 0.5, textAlign: 'right' }}>{row}</div>
+                  {SECTIONS.map((section) => {
+                    const exists = row <= sectionCounts[section];
+                    if (!exists) return <div key={section} style={{ flex: 1, height: 16 }} />;
+                    const key = pewKey(section, row);
+                    const blocked = blockedSet.has(key);
+                    return (
+                      <button
+                        key={section}
+                        onClick={() => toggleBlocked(key)}
+                        style={{
+                          flex: 1, height: 16, borderRadius: 3, border: 'none',
+                          background: blocked ? COLORS.camel : 'rgba(244,237,228,0.1)',
+                          padding: 0, cursor: 'pointer',
+                        }}
+                      />
+                    );
+                  })}
+                  <div style={{ width: 14 }} />
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', marginTop: 8, paddingLeft: 18, paddingRight: 18 }}>
+              {['Left', 'Center', 'Right'].map((l) => (
+                <div key={l} style={{ flex: 1, textAlign: 'center', fontSize: 9, color: COLORS.camel, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 1 }}>{l}</div>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div style={{ width: 14, height: 14, borderRadius: 3, background: COLORS.camel }} />
+              <span style={{ fontSize: 11, color: '#7A8A8F' }}>Blocked</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div style={{ width: 14, height: 14, borderRadius: 3, background: 'rgba(47,62,70,0.15)' }} />
+              <span style={{ fontSize: 11, color: '#7A8A8F' }}>Open pew</span>
+            </div>
+          </div>
+        </div>
+
+        <button
+          onClick={handleStart}
+          style={{
+            width: '100%', padding: '16px 0', borderRadius: 14, border: 'none',
+            background: COLORS.terracotta, color: COLORS.cream, fontWeight: 700, fontSize: 16,
+          }}
+        >
+          Start the Challenge →
+        </button>
+        <div style={{ textAlign: 'center', fontSize: 12, color: '#9AA5A8', marginTop: 12 }}>
+          Guest mode — your data won't be saved
+        </div>
       </div>
     </div>
   );
@@ -1724,6 +1893,9 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog, see
         >
           🔗 Invite Someone to Try It
         </button>
+        <div style={{ textAlign: 'center', fontSize: 10, color: '#C2B8AC', marginTop: 16 }}>
+          Pew Challenge v23 · lancea141-source.github.io/pew-challenge
+        </div>
       </div>
 
       {/* Toast */}
@@ -1788,7 +1960,11 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog, see
           <div style={{ color: COLORS.camel, fontSize: 13, marginTop: 4 }}>
             Met {fmtDate(lightboxPal.met_on)}
           </div>
-          <div style={{ color: '#888', fontSize: 12, marginTop: 16 }}>Tap anywhere to close</div>
+          <div style={{ display: 'flex', gap: 10, marginTop: 16 }} onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => sharePhoto(lightboxPal.photo_url, `My Pew Pal ${lightboxPal.pal_name} 🪑`)} style={photoActionBtn}>🔗 Share</button>
+            <button onClick={() => downloadPhoto(lightboxPal.photo_url, `pew-pal-${lightboxPal.pal_name}.jpg`)} style={photoActionBtn}>⬇ Save</button>
+          </div>
+          <div style={{ color: '#888', fontSize: 11, marginTop: 10 }}>Tap outside to close</div>
         </div>
       )}
 
@@ -1804,7 +1980,7 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog, see
           <img
             src={lightboxEntry.photo}
             alt=""
-            style={{ width: '100%', maxHeight: '70vh', objectFit: 'contain', borderRadius: 16 }}
+            style={{ width: '100%', maxHeight: '65vh', objectFit: 'contain', borderRadius: 16 }}
           />
           <div style={{ color: '#fff', marginTop: 14, fontSize: 16, fontWeight: 700 }}>
             {lightboxEntry.section[0].toUpperCase() + lightboxEntry.section.slice(1)} · Row {lightboxEntry.row}
@@ -1817,12 +1993,22 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog, see
               {lightboxEntry.notes}
             </div>
           ) : null}
-          <div style={{ color: '#888', fontSize: 12, marginTop: 16 }}>Tap anywhere to close</div>
+          <div style={{ display: 'flex', gap: 10, marginTop: 16 }} onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => sharePhoto(lightboxEntry.photo, `Church Check — ${lightboxEntry.section} row ${lightboxEntry.row} 🪑`)} style={photoActionBtn}>🔗 Share</button>
+            <button onClick={() => downloadPhoto(lightboxEntry.photo, `church-check-${lightboxEntry.date}.jpg`)} style={photoActionBtn}>⬇ Save</button>
+          </div>
+          <div style={{ color: '#888', fontSize: 11, marginTop: 10 }}>Tap outside to close</div>
         </div>
       )}
     </div>
   );
 }
+
+const photoActionBtn = {
+  padding: '10px 20px', borderRadius: 999, border: `1px solid rgba(255,255,255,0.3)`,
+  background: 'rgba(255,255,255,0.1)', color: '#fff', fontSize: 14, fontWeight: 600,
+  cursor: 'pointer',
+};
 
 // ---- Share View — read-only public view of a user's progress ----
 function ShareView({ log, pewPals, ward, profile, totalPews, uniquePews, pct, onClose }) {
@@ -2073,6 +2259,30 @@ function Gallery({ log, pewPals, initialTab, onClose }) {
               Met {fmtDate(selected.met_on)}
             </div>
           ) : null}
+          <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+            <button
+              onClick={() => sharePhoto(
+                selected.photo || selected.photo_url,
+                tab === 'checks'
+                  ? `Church Check — ${selected.section} row ${selected.row} 🪑`
+                  : `My Pew Pal ${selected.pal_name} 🪑`
+              )}
+              style={photoActionBtn}
+            >
+              🔗 Share
+            </button>
+            <button
+              onClick={() => downloadPhoto(
+                selected.photo || selected.photo_url,
+                tab === 'checks'
+                  ? `church-check-${selected.date}.jpg`
+                  : `pew-pal-${selected.pal_name}.jpg`
+              )}
+              style={photoActionBtn}
+            >
+              ⬇ Save
+            </button>
+          </div>
         </div>
       ) : (
         /* Grid view */
@@ -2156,6 +2366,7 @@ function App() {
   const [ward, setWard] = useState(null);
   const [loadErr, setLoadErr] = useState(null);
   const [guestMode, setGuestMode] = useState(false);
+  const [guestWard, setGuestWard] = useState(null);
   const [lanceMode, setLanceMode] = useState(false);
   const [lanceLog, setLanceLog] = useState([]);
   const [lancePals, setLancePals] = useState([]);
@@ -2229,7 +2440,7 @@ function App() {
 
   const handleSignOut = async () => {
     if (lanceMode) { setLanceMode(false); return; }
-    if (guestMode) { setGuestMode(false); return; }
+    if (guestMode) { setGuestMode(false); setGuestWard(null); return; }
     await sb.auth.signOut();
   };
 
@@ -2250,9 +2461,12 @@ function App() {
   }
 
   if (guestMode) {
+    if (!guestWard) {
+      return <GuestSetup onStart={(ward) => setGuestWard(ward)} />;
+    }
     return (
       <PewChallengeApp
-        user={{ id: 'guest' }} profile={GUEST_PROFILE_OBJ} ward={EMPTY_WARD}
+        user={{ id: 'guest' }} profile={GUEST_PROFILE_OBJ} ward={guestWard}
         onSignOut={handleSignOut} isGuest={true} seedLog={[]} seedPals={[]}
       />
     );
