@@ -1,4 +1,4 @@
-<!-- Pew Challenge v19 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
+<!-- Pew Challenge v21 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -44,7 +44,7 @@ const COLORS = {
   olive: '#6B7A3A',
 };
 
-const LOGO_URL = 'https://drive.google.com/uc?id=1NosHz-mLGpPckIeBhrQpgtwH5YU_Lu6s';
+const LOGO_URL = 'https://raw.githubusercontent.com/lancea141-source/utah-parcel-lookup/main/logo.png';
 
 // ---- Chapel layout helpers ----
 // Layout now comes from the `wards` table per-ward (left_rows, center_rows, right_rows, blocked_pews)
@@ -66,6 +66,20 @@ const fmtDate = (iso) => {
 };
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
+
+const APP_URL = 'https://lancea141-source.github.io/pew-challenge/';
+
+const shareApp = async (msg) => {
+  const text = msg || 'I\'m doing the Pew Challenge — sit somewhere new every Sunday! 🪑';
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'The Pew Challenge', text, url: APP_URL });
+    } catch (e) { /* user cancelled */ }
+  } else {
+    await navigator.clipboard.writeText(`${text}\n${APP_URL}`);
+    alert('Link copied to clipboard!');
+  }
+};
 
 
 // ---- Camera capture: BeReal-style dual shot ----
@@ -611,6 +625,16 @@ function BragCard({ log, totalPews, onClose }) {
           }}
         >
           Save Image
+        </button>
+        <button
+          onClick={() => shareApp(`I've completed ${pct}% of the pews at my chapel — join the Pew Challenge! 🪑`)}
+          style={{
+            padding: '12px 22px', borderRadius: 999, border: 'none',
+            background: COLORS.navy, color: COLORS.cream, fontFamily: 'system-ui',
+            fontSize: 15, fontWeight: 700,
+          }}
+        >
+          🔗 Share
         </button>
       </div>
     </div>
@@ -1682,6 +1706,16 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog }) {
         >
           👁 Share My Progress
         </button>
+        <button
+          onClick={() => shareApp()}
+          style={{
+            width: '100%', marginTop: 10, padding: '15px 0', borderRadius: 14,
+            border: `1px solid ${COLORS.camel}`, background: 'transparent',
+            color: COLORS.navy, fontWeight: 700, fontSize: 15, letterSpacing: 0.3,
+          }}
+        >
+          🔗 Invite Someone to Try It
+        </button>
       </div>
 
       {/* Toast */}
@@ -1917,6 +1951,16 @@ function ShareView({ log, pewPals, ward, profile, totalPews, uniquePews, pct, on
         <div style={{ textAlign: 'center', fontSize: 13, color: '#9AA5A8', marginBottom: 12 }}>
           Want to track your own pews?
         </div>
+        <button
+          onClick={() => shareApp('Check out the Pew Challenge — sit somewhere new every Sunday! 🪑')}
+          style={{
+            width: '100%', padding: '15px 0', borderRadius: 14, border: 'none',
+            background: COLORS.navy, color: COLORS.cream, fontWeight: 700, fontSize: 15,
+            marginBottom: 10,
+          }}
+        >
+          🔗 Share This App
+        </button>
         <button
           onClick={onClose}
           style={{
