@@ -1,10 +1,17 @@
-<!-- Pew Challenge v23 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
+<!-- Pew Challenge v24 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>The Pew Challenge — Lance the Realtor</title>
+<meta name="description" content="Track every pew you've sat in. Church Check, BeReal-style." />
+<meta name="theme-color" content="#2F3E46" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Pew Challenge" />
+<link rel="apple-touch-icon" href="https://raw.githubusercontent.com/lancea141-source/utah-parcel-lookup/main/logo.png" />
+<link rel="manifest" href="manifest.json" />
 <style>
   html, body { margin: 0; padding: 0; background: #F4EDE4; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -709,8 +716,11 @@ function GuestSetup({ onStart }) {
           background: '#fff', border: `1px solid ${COLORS.camel}40`,
           borderRadius: 16, padding: 18, marginBottom: 16,
         }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.navy, marginBottom: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.navy, marginBottom: 4 }}>
             Rows per section
+          </div>
+          <div style={{ fontSize: 11.5, color: '#9AA5A8', marginBottom: 14 }}>
+            Most chapels have 8–14 rows · max 20
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
             {[
@@ -723,9 +733,9 @@ function GuestSetup({ onStart }) {
                   {f.label}
                 </div>
                 <input
-                  type="number" min="0" max="25"
+                  type="number" min="0" max="20"
                   value={f.val}
-                  onChange={(e) => f.set(Math.max(0, parseInt(e.target.value || '0', 10)))}
+                  onChange={(e) => f.set(Math.min(20, Math.max(0, parseInt(e.target.value || '0', 10))))}
                   style={{
                     ...inputStyle, padding: '10px 6px', textAlign: 'center',
                     fontSize: 18, fontWeight: 700, width: '100%',
@@ -1279,9 +1289,9 @@ function AuthScreen({ onAuthed }) {
                       <input
                         type="number"
                         min="0"
-                        max="25"
+                        max="20"
                         value={f.val}
-                        onChange={(e) => f.set(Math.max(0, parseInt(e.target.value || '0', 10)))}
+                        onChange={(e) => f.set(Math.min(20, Math.max(0, parseInt(e.target.value || '0', 10))))}
                         style={{
                           ...inputStyle, padding: '8px 6px', textAlign: 'center', fontSize: 14,
                         }}
@@ -1414,6 +1424,36 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog, see
   const totalPews = ward.left_rows + ward.center_rows + ward.right_rows - ward.blocked_pews.length;
   const uniquePews = new Set(log.map((l) => pewKey(l.section, l.row))).size;
   const pct = totalPews > 0 ? Math.round((uniquePews / totalPews) * 100) : 0;
+
+  // Streak: count consecutive Sundays (Sun = day 0) going back from most recent log
+  const streak = (() => {
+    const sundays = [...new Set(log.map((l) => l.date))].sort().reverse();
+    if (!sundays.length) return 0;
+    let count = 0;
+    let expected = null;
+    for (const dateStr of sundays) {
+      const d = new Date(dateStr + 'T12:00:00');
+      // Find the Sunday of this week
+      const dayOfWeek = d.getDay();
+      const sunday = new Date(d);
+      sunday.setDate(d.getDate() - dayOfWeek);
+      const sundayStr = sunday.toISOString().slice(0, 10);
+      if (expected === null) {
+        count = 1;
+        expected = new Date(sunday);
+        expected.setDate(expected.getDate() - 7);
+      } else {
+        const expectedStr = expected.toISOString().slice(0, 10);
+        if (sundayStr === expectedStr) {
+          count++;
+          expected.setDate(expected.getDate() - 7);
+        } else {
+          break;
+        }
+      }
+    }
+    return count;
+  })();
 
   const lastEntryForKey = (key) => {
     const matches = log.filter((l) => pewKey(l.section, l.row) === key);
@@ -1625,24 +1665,30 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog, see
           Sit somewhere new. Mix it up. Church Check it.
         </p>
 
-        <div style={{ display: 'flex', gap: 14, marginTop: 18 }}>
-          <div style={{ flex: 1, background: 'rgba(244,237,228,0.08)', borderRadius: 12, padding: '10px 14px' }}>
-            <div style={{ color: COLORS.terracotta, fontSize: 26, fontWeight: 800, fontFamily: 'Georgia, serif' }}>
-              {uniquePews}<span style={{ fontSize: 15, color: COLORS.camel }}>/{totalPews}</span>
+        <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+          <div style={{ flex: 1, background: 'rgba(244,237,228,0.08)', borderRadius: 12, padding: '10px 10px' }}>
+            <div style={{ color: COLORS.terracotta, fontSize: 22, fontWeight: 800, fontFamily: 'Georgia, serif' }}>
+              {uniquePews}<span style={{ fontSize: 13, color: COLORS.camel }}>/{totalPews}</span>
             </div>
-            <div style={{ color: COLORS.cream, fontSize: 11, opacity: 0.7 }}>pews completed</div>
+            <div style={{ color: COLORS.cream, fontSize: 10, opacity: 0.7 }}>pews</div>
           </div>
-          <div style={{ flex: 1, background: 'rgba(244,237,228,0.08)', borderRadius: 12, padding: '10px 14px' }}>
-            <div style={{ color: COLORS.olive, fontSize: 26, fontWeight: 800, fontFamily: 'Georgia, serif' }}>
+          <div style={{ flex: 1, background: 'rgba(244,237,228,0.08)', borderRadius: 12, padding: '10px 10px' }}>
+            <div style={{ color: COLORS.olive, fontSize: 22, fontWeight: 800, fontFamily: 'Georgia, serif' }}>
               {log.length}
             </div>
-            <div style={{ color: COLORS.cream, fontSize: 11, opacity: 0.7 }}>Sundays logged</div>
+            <div style={{ color: COLORS.cream, fontSize: 10, opacity: 0.7 }}>Sundays</div>
           </div>
-          <div style={{ flex: 1, background: 'rgba(244,237,228,0.08)', borderRadius: 12, padding: '10px 14px' }}>
-            <div style={{ color: COLORS.cream, fontSize: 26, fontWeight: 800, fontFamily: 'Georgia, serif' }}>
+          <div style={{ flex: 1, background: 'rgba(244,237,228,0.08)', borderRadius: 12, padding: '10px 10px' }}>
+            <div style={{ color: COLORS.camel, fontSize: 22, fontWeight: 800, fontFamily: 'Georgia, serif' }}>
+              {streak}<span style={{ fontSize: 13, color: COLORS.camel, opacity: 0.7 }}> wk</span>
+            </div>
+            <div style={{ color: COLORS.cream, fontSize: 10, opacity: 0.7 }}>🔥 streak</div>
+          </div>
+          <div style={{ flex: 1, background: 'rgba(244,237,228,0.08)', borderRadius: 12, padding: '10px 10px' }}>
+            <div style={{ color: COLORS.cream, fontSize: 22, fontWeight: 800, fontFamily: 'Georgia, serif' }}>
               {pct}%
             </div>
-            <div style={{ color: COLORS.cream, fontSize: 11, opacity: 0.7 }}>chapel covered</div>
+            <div style={{ color: COLORS.cream, fontSize: 10, opacity: 0.7 }}>covered</div>
           </div>
         </div>
 
@@ -1677,14 +1723,39 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog, see
             const priorEntries = lastEntryForKey(pendingPew.key);
             return (
               <>
-                <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.navy, marginBottom: 2 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.navy, marginBottom: 6 }}>
                   {pendingPew.section[0].toUpperCase() + pendingPew.section.slice(1)} · Row {pendingPew.row}
                 </div>
-                <div style={{ fontSize: 12.5, color: '#7A8A8F', marginBottom: 8 }}>
-                  {priorEntries.length
-                    ? `Sat here ${priorEntries.length}x: ${priorEntries.map((e) => fmtDate(e.date)).join(' · ')}`
-                    : "You haven't sat here yet — new pew!"}
-                </div>
+                  {priorEntries.length ? (
+                    <div style={{ marginBottom: 8 }}>
+                      {priorEntries.map((e) => (
+                        <div key={e.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #F0E8DE' }}>
+                          <div style={{ fontSize: 12.5, color: '#7A8A8F' }}>
+                            {fmtDate(e.date)}{e.photo ? ' 📷' : ''}
+                          </div>
+                          {!isGuest && (
+                            <button
+                              onClick={async () => {
+                                if (!window.confirm('Delete this entry?')) return;
+                                const { error } = await sb.from('pew_logs').delete().eq('id', e.id);
+                                if (!error) {
+                                  setLog((prev) => prev.filter((l) => l.id !== e.id));
+                                  if (priorEntries.length === 1) setPendingPew(null);
+                                }
+                              }}
+                              style={{ background: 'none', border: 'none', color: '#C0652A', fontSize: 12, padding: '2px 6px', cursor: 'pointer' }}
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 12.5, color: '#7A8A8F', marginBottom: 8 }}>
+                      You haven't sat here yet — new pew!
+                    </div>
+                  )}
 
                 <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
                   <div style={{ flex: 1 }}>
@@ -1894,7 +1965,7 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog, see
           🔗 Invite Someone to Try It
         </button>
         <div style={{ textAlign: 'center', fontSize: 10, color: '#C2B8AC', marginTop: 16 }}>
-          Pew Challenge v23 · lancea141-source.github.io/pew-challenge
+          Pew Challenge v24 · lancea141-source.github.io/pew-challenge
         </div>
       </div>
 
@@ -1961,8 +2032,16 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog, see
             Met {fmtDate(lightboxPal.met_on)}
           </div>
           <div style={{ display: 'flex', gap: 10, marginTop: 16 }} onClick={(e) => e.stopPropagation()}>
-            <button onClick={() => sharePhoto(lightboxPal.photo_url, `My Pew Pal ${lightboxPal.pal_name} 🪑`)} style={photoActionBtn}>🔗 Share</button>
-            <button onClick={() => downloadPhoto(lightboxPal.photo_url, `pew-pal-${lightboxPal.pal_name}.jpg`)} style={photoActionBtn}>⬇ Save</button>
+            {isGuest ? (
+              <div style={{ color: COLORS.camel, fontSize: 12.5, textAlign: 'center', padding: '8px 16px', border: `1px solid ${COLORS.camel}40`, borderRadius: 999 }}>
+                🪑 Start your own to share the fun!
+              </div>
+            ) : (
+              <>
+                <button onClick={() => sharePhoto(lightboxPal.photo_url, `My Pew Pal ${lightboxPal.pal_name} 🪑`)} style={photoActionBtn}>🔗 Share</button>
+                <button onClick={() => downloadPhoto(lightboxPal.photo_url, `pew-pal-${lightboxPal.pal_name}.jpg`)} style={photoActionBtn}>⬇ Save</button>
+              </>
+            )}
           </div>
           <div style={{ color: '#888', fontSize: 11, marginTop: 10 }}>Tap outside to close</div>
         </div>
@@ -1994,8 +2073,16 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog, see
             </div>
           ) : null}
           <div style={{ display: 'flex', gap: 10, marginTop: 16 }} onClick={(e) => e.stopPropagation()}>
-            <button onClick={() => sharePhoto(lightboxEntry.photo, `Church Check — ${lightboxEntry.section} row ${lightboxEntry.row} 🪑`)} style={photoActionBtn}>🔗 Share</button>
-            <button onClick={() => downloadPhoto(lightboxEntry.photo, `church-check-${lightboxEntry.date}.jpg`)} style={photoActionBtn}>⬇ Save</button>
+            {isGuest ? (
+              <div style={{ color: COLORS.camel, fontSize: 12.5, textAlign: 'center', padding: '8px 16px', border: `1px solid ${COLORS.camel}40`, borderRadius: 999 }}>
+                🪑 Start your own to share the fun!
+              </div>
+            ) : (
+              <>
+                <button onClick={() => sharePhoto(lightboxEntry.photo, `Church Check — ${lightboxEntry.section} row ${lightboxEntry.row} 🪑`)} style={photoActionBtn}>🔗 Share</button>
+                <button onClick={() => downloadPhoto(lightboxEntry.photo, `church-check-${lightboxEntry.date}.jpg`)} style={photoActionBtn}>⬇ Save</button>
+              </>
+            )}
           </div>
           <div style={{ color: '#888', fontSize: 11, marginTop: 10 }}>Tap outside to close</div>
         </div>
