@@ -1,0 +1,38 @@
+name: Report to Project Tracker
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send version info to tracker
+        run: |
+          VERSION="${{ github.event.release.tag_name }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="${GITHUB_SHA::7}"
+          fi
+
+          curl -s -X POST "${{ secrets.TRACKER_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"secret\": \"${{ secrets.TRACKER_SECRET }}\",
+              \"project\": \"Pew Pals\",
+              \"type\": \"Repo\",
+              \"pipeline\": \"${{ github.event.repository.name }}\",
+              \"area\": \"\",
+              \"version\": \"$VERSION\",
+              \"sourceUrl\": \"${{ github.event.repository.html_url }}\",
+              \"publishedUrl\": \"${{ github.event.repository.has_pages == true && format('https://{0}.github.io/{1}/', github.repository_owner, github.event.repository.name) || '' }}\",
+              \"recordCount\": \"\",
+              \"status\": \"Live\",
+              \"lastError\": \"\",
+              \"dataSource\": \"${{ github.event.repository.language }}\",
+              \"scriptLink\": \"${{ github.event.head_commit.url || github.event.release.html_url }}\",
+              \"changeNotes\": \"$(echo '${{ github.event.head_commit.message || github.event.release.name }}' | head -c 200)\",
+              \"environment\": \"Production\"
+            }"
