@@ -1,0 +1,42 @@
+/**
+ * WEBHOOK ENDPOINT — v1.0
+ * Generated: 2026-07-25
+ * Add this to the SAME Apps Script project as Code.gs (Lance Project Registry).
+ * After pasting, redeploy: Deploy > Manage deployments > Edit > New version.
+ */
+
+const WEBHOOK_SHARED_SECRET = 'REPLACE_WITH_A_RANDOM_STRING_YOU_PICK';
+
+function doPost(e) {
+  try {
+    const payload = JSON.parse(e.postData.contents);
+
+    if (payload.secret !== WEBHOOK_SHARED_SECRET) {
+      return ContentService.createTextOutput(JSON.stringify({ ok: false, error: 'bad secret' }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    registerRun({
+      project: payload.project || 'GitHub',
+      type: payload.type || 'Repo',
+      pipeline: payload.pipeline || payload.repo || '',
+      area: payload.area || '',
+      version: payload.version || '',
+      sourceUrl: payload.sourceUrl || '',
+      publishedUrl: payload.publishedUrl || '',
+      recordCount: payload.recordCount || '',
+      status: payload.status || 'Live',
+      lastError: payload.lastError || '',
+      dataSource: payload.dataSource || '',
+      scriptLink: payload.scriptLink || '',
+      changeNotes: payload.changeNotes || '',
+      environment: payload.environment || 'Production'
+    });
+
+    return ContentService.createTextOutput(JSON.stringify({ ok: true }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ ok: false, error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
