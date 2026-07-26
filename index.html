@@ -1,4 +1,4 @@
-<!-- Pew Challenge v24 | 2026-07-05 | Fixes: photos, thumbnails, notes, pew pals, no duplicates -->
+<!-- Pew Challenge v25 | 2026-07-26 | Flip BeReal layout (selfie big, chapel small), admin stats page -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -196,7 +196,8 @@ function CameraCapture({ onCapture, onCancel }) {
     return canvas.toDataURL('image/jpeg', 0.85);
   };
 
-  const composite = (back, front) => {
+  // v25: caller passes (bigShot, smallShot) — selfie is big, chapel shot is the small PiP
+  const composite = (bigShot, smallShot) => {
     return new Promise((resolve) => {
       const W = 900, H = 1200;
       const canvas = document.createElement('canvas');
@@ -233,9 +234,9 @@ function CameraCapture({ onCapture, onCancel }) {
           ctx.stroke();
           resolve(canvas.toDataURL('image/jpeg', 0.88));
         };
-        smallImg.src = front;
+        smallImg.src = smallShot;
       };
-      bigImg.src = back;
+      bigImg.src = bigShot;
     });
   };
 
@@ -253,7 +254,8 @@ function CameraCapture({ onCapture, onCancel }) {
     } else {
       const shot = captureFrame(true);
       setFrontShot(shot);
-      const final = await composite(backShot, shot);
+      // v25: selfie is now the big photo, chapel shot is the small PiP
+      const final = await composite(shot, backShot);
       onCapture(final);
     }
   };
@@ -1375,6 +1377,155 @@ const inputStyle = {
   fontSize: 15, fontFamily: 'system-ui', background: '#fff', color: '#2F3E46',
 };
 
+// ---- Admin stats page (Lance-only) ----
+// NOTE: requires Supabase RLS policies that grant the Lance account read access
+// across all rows in profiles / wards / pew_logs / pew_pals (not just its own).
+// Without an admin-scoped policy these queries will come back empty for everyone
+// but rows Lance's own user_id already owns.
+function AdminStats({ onClose }) {
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+  const [wards, setWards] = useState([]);
+  const [totals, setTotals] = useState({ users: 0, wards: 0, checks: 0, pals: 0 });
+  const [wardBreakdown, setWardBreakdown] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setErr(null);
+      try {
+        const [
+          { count: userCount, error: uErr },
+          { data: wardRows, error: wErr },
+          { count: checkCount, error: cErr },
+          { count: palCount, error: pErr },
+          { data: profileRows, error: profErr },
+          { data: logRows, error: logErr },
+        ] = await Promise.all([
+          sb.from('profiles').select('id', { count: 'exact', head: true }),
+          sb.from('wards').select('id, name'),
+          sb.from('pew_logs').select('id', { count: 'exact', head: true }),
+          sb.from('pew_pals').select('id', { count: 'exact', head: true }),
+          sb.from('profiles').select('id, display_name, ward_id'),
+          sb.from('pew_logs').select('id, ward_id, user_id, sat_on'),
+        ]);
+
+        if (cancelled) return;
+        const firstErr = uErr || wErr || cErr || pErr || profErr || logErr;
+        if (firstErr) throw firstErr;
+
+        setTotals({
+          users: userCount || 0,
+          wards: (wardRows || []).length,
+          checks: checkCount || 0,
+          pals: palCount || 0,
+        });
+        setWards(wardRows || []);
+
+        // per-ward breakdown: member count + total checks + last activity date
+        const breakdown = (wardRows || []).map((w) => {
+          const members = (profileRows || []).filter((p) => p.ward_id === w.id);
+          const checks = (logRows || []).filter((l) => l.ward_id === w.id);
+          const lastDate = checks.reduce((max, l) => (l.sat_on > max ? l.sat_on : max), '');
+          return {
+            id: w.id,
+            name: w.name,
+            members: members.length,
+            checks: checks.length,
+            lastDate: lastDate || '—',
+          };
+        }).sort((a, b) => b.checks - a.checks);
+        setWardBreakdown(breakdown);
+      } catch (e) {
+        if (!cancelled) setErr(e.message || 'Could not load admin stats. Check RLS policies allow admin reads.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const StatCard = ({ label, value, color }) => (
+    <div style={{ flex: 1, background: 'rgba(244,237,228,0.08)', borderRadius: 12, padding: '12px 10px', minWidth: 0 }}>
+      <div style={{ color: color || COLORS.terracotta, fontSize: 24, fontWeight: 800, fontFamily: 'Georgia, serif' }}>
+        {value}
+      </div>
+      <div style={{ color: COLORS.cream, fontSize: 10, opacity: 0.75 }}>{label}</div>
+    </div>
+  );
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: COLORS.cream, zIndex: 60,
+      overflowY: 'auto', fontFamily: 'system-ui, -apple-system, sans-serif',
+    }}>
+      <div style={{
+        background: COLORS.navy, padding: '20px 20px 24px', borderBottomLeftRadius: 24,
+        borderBottomRightRadius: 24,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <h1 style={{ color: COLORS.cream, fontFamily: 'Georgia, serif', fontSize: 22, fontWeight: 700, margin: 0 }}>
+            📊 Admin Stats
+          </h1>
+          <button
+            onClick={onClose}
+            style={{ background: 'rgba(244,237,228,0.12)', border: 'none', color: COLORS.cream, fontSize: 13, fontWeight: 600, padding: '8px 16px', borderRadius: 999 }}
+          >
+            Close
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <StatCard label="wards" value={totals.wards} color={COLORS.olive} />
+          <StatCard label="users" value={totals.users} color={COLORS.terracotta} />
+          <StatCard label="church checks" value={totals.checks} color={COLORS.camel} />
+          <StatCard label="pew pals" value={totals.pals} />
+        </div>
+      </div>
+
+      <div style={{ padding: 16 }}>
+        {loading && (
+          <div style={{ color: COLORS.navy, textAlign: 'center', padding: 30 }}>Loading admin stats…</div>
+        )}
+        {err && (
+          <div style={{ background: '#F7E4E1', color: '#B23A2F', borderRadius: 12, padding: 14, fontSize: 13, lineHeight: 1.5 }}>
+            {err}
+          </div>
+        )}
+        {!loading && !err && (
+          <>
+            <h2 style={{ color: COLORS.navy, fontFamily: 'Georgia, serif', fontSize: 16, margin: '4px 0 10px' }}>
+              By ward
+            </h2>
+            {wardBreakdown.length === 0 && (
+              <div style={{ color: COLORS.navy, opacity: 0.6, fontSize: 13 }}>No wards found.</div>
+            )}
+            {wardBreakdown.map((w) => (
+              <div key={w.id} style={{
+                background: 'white', borderRadius: 14, padding: '12px 14px', marginBottom: 10,
+                border: `1px solid ${COLORS.camel}40`, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              }}>
+                <div>
+                  <div style={{ color: COLORS.navy, fontWeight: 700, fontSize: 14.5 }}>{w.name}</div>
+                  <div style={{ color: COLORS.navy, opacity: 0.6, fontSize: 11.5 }}>
+                    {w.members} member{w.members === 1 ? '' : 's'} · last check {w.lastDate}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ color: COLORS.terracotta, fontWeight: 800, fontSize: 18, fontFamily: 'Georgia, serif' }}>
+                    {w.checks}
+                  </div>
+                  <div style={{ color: COLORS.navy, opacity: 0.55, fontSize: 10 }}>checks</div>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog, seedPals }) {
   const [log, setLog] = useState(seedLog || []);
   const [loadingLog, setLoadingLog] = useState(!isGuest);
@@ -1391,6 +1542,7 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog, see
   const [toast, setToast] = useState(null);
   const [pewPals, setPewPals] = useState(seedPals || []);
   const [showPalCapture, setShowPalCapture] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
 
   const loadPewPals = useCallback(async () => {
     if (isGuest) return;
@@ -1636,6 +1788,8 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog, see
       minHeight: '100vh', background: COLORS.cream, fontFamily: 'system-ui, -apple-system, sans-serif',
       paddingBottom: 40,
     }}>
+      {showAdmin && <AdminStats onClose={() => setShowAdmin(false)} />}
+
       {/* Header */}
       <div style={{
         background: COLORS.navy, padding: '22px 20px 26px', borderBottomLeftRadius: 24,
@@ -1648,12 +1802,22 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog, see
               {ward.name}
             </span>
           </div>
-          <button
-            onClick={onSignOut}
-            style={{ background: 'none', border: 'none', color: COLORS.camel, fontSize: 11, opacity: 0.7 }}
-          >
-            {isGuest ? '← Log In / Sign Up' : 'Sign out'}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            {user.id === LANCE_USER_ID && (
+              <button
+                onClick={() => setShowAdmin(true)}
+                style={{ background: 'none', border: 'none', color: COLORS.terracotta, fontSize: 11, fontWeight: 700, opacity: 0.9 }}
+              >
+                📊 Admin
+              </button>
+            )}
+            <button
+              onClick={onSignOut}
+              style={{ background: 'none', border: 'none', color: COLORS.camel, fontSize: 11, opacity: 0.7 }}
+            >
+              {isGuest ? '← Log In / Sign Up' : 'Sign out'}
+            </button>
+          </div>
         </div>
         <h1 style={{
           color: COLORS.cream, fontFamily: 'Georgia, serif', fontSize: 30, fontWeight: 700,
@@ -1965,7 +2129,7 @@ function PewChallengeApp({ user, profile, ward, onSignOut, isGuest, seedLog, see
           🔗 Invite Someone to Try It
         </button>
         <div style={{ textAlign: 'center', fontSize: 10, color: '#C2B8AC', marginTop: 16 }}>
-          Pew Challenge v24 · lancea141-source.github.io/pew-challenge
+          Pew Challenge v25 · lancea141-source.github.io/pew-challenge
         </div>
       </div>
 
